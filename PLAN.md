@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.3** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.4** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -187,6 +187,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
 - [x] **S-05** Scripted human paths: full person leans + reaches in at time *t* (2-bone-IK arm, hand yawed onto forearm)
 - [x] **S-06** `sim/play.py`: play a scenario live in the viewer (Motion + scripted hand, pause/restart/quit, loop, `--speed`, `--record` mp4) + headless attach test
+- [x] **S-07** Real hand-over: `release()` waits for the hand within 5 cm of the handle (timeout keeps holding), knife transfers to `human_hand`, robot retracts, person retreats carrying it; `knife_handover_safe` (handle-first, slow) + `knife_handover_unsafe` (blade-first) variants
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
 ### Phase 2: Perception → scene graph (Oct 29)
@@ -372,6 +373,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.1 | Oct 27 | Add P0-07 (Phase 0 pytest suite) |
 | v1.2 | Oct 27 | Add S-06 (scenario playback `sim/play.py` + headless attach test) |
 | v1.3 | Oct 27 | S-05: full procedural person (lean, IK arm, hand orientation); split front/demo cameras |
+| v1.4 | Oct 27 | Add S-07 (real hand-over with safe/unsafe variants) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

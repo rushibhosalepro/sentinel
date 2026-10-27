@@ -88,12 +88,17 @@ def _finger_adrs(model: mujoco.MjModel) -> list[int]:
     return [model.jnt(name).qposadr for name in FINGER_JOINTS]
 
 
-def _free_qposadr(model: mujoco.MjModel, body_name: str) -> int:
+def free_qposadr(model: mujoco.MjModel, body_name: str) -> int:
+    """qpos address of a free-joint body's (pos, quat); GraspFailed if none."""
     body_id = model.body(body_name).id
     jadr = model.body_jntadr[body_id]
     if jadr < 0 or model.jnt_type[jadr] != mujoco.mjtJoint.mjJNT_FREE:
         raise GraspFailed(f"{body_name} has no free joint (not graspable)")
     return model.jnt_qposadr[jadr]
+
+
+def _free_qposadr(model: mujoco.MjModel, body_name: str) -> int:
+    return free_qposadr(model, body_name)
 
 
 def _drag_held(model: mujoco.MjModel, data: mujoco.MjData, state: PrimState):

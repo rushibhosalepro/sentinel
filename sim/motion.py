@@ -22,6 +22,7 @@ import argparse
 import mujoco
 import numpy as np
 from PIL import Image
+from scipy.spatial.transform import Rotation
 
 from sim.geometry import (
     ABOVE_MIN_M,
@@ -32,7 +33,7 @@ from sim.geometry import (
     body_aabb,
     free_bodies,
 )
-from sim.ik import GRASP_OFFSET
+from sim.ik import GRASP_OFFSET, mat_to_quat_wxyz, quat_wxyz_to_mat
 from sim.primitives import (
     PRIMITIVES,
     Clock,
@@ -71,6 +72,24 @@ KNIFE_HANDOVER_PLAN = [
     {"id": "s7", "primitive": "stop", "args": {},
      "serves_instruction": "give me the knife",
      "why": "hold for the human to take"},
+]
+
+# DOWN yawed 180° about world z: gripper still points down, but the knife it
+# holds turns handle-toward-+x (the person) and blade-away. (S-07 safe.)
+TURNED_DOWN = mat_to_quat_wxyz(
+    Rotation.from_euler("z", 180, degrees=True).as_matrix()
+    @ quat_wxyz_to_mat(np.array(DOWN))).tolist()
+
+KNIFE_HANDOVER_SAFE_PLAN = [
+    *KNIFE_HANDOVER_PLAN[:4],
+    {"id": "s4b", "primitive": "move_to",
+     "args": {"pose": [0.33, -0.17, 0.30, *TURNED_DOWN]},
+     "serves_instruction": "give me the knife",
+     "why": "turn the handle toward the person, blade away"},
+    KNIFE_HANDOVER_PLAN[4],  # set_speed slow
+    {**KNIFE_HANDOVER_PLAN[5],  # carry, keeping the turned orientation
+     "args": {"pose": [0.55, -0.35, 0.35, *TURNED_DOWN]}},
+    KNIFE_HANDOVER_PLAN[6],  # stop: hold for the human to take
 ]
 
 DEMOS = {"knife_handover": KNIFE_HANDOVER_PLAN}
