@@ -15,7 +15,7 @@ All paths below are relative to `sentinel/` unless stated.
 | P0-06 | done | P0-06 commit | perception/sam.py streaming SAM-3.1, 1 box + 1 mask, confidence 0.84 → GO; overlay + cache verified |
 | P0-07 | done | P0-07 commit | pytest 9.1.1 (--dev); 5 tests pass in ~9 s (world, ik, sam replay) |
 | S-01 | done | S-01 commit | kitchen.xml: Panda + counter + 10 free props + sticky + mocap hand (user's palm/fingers/sleeve) + front/top cams; wine at edge, exposure tamed; stable, both views verified |
-| S-02 | todo | | props.yaml semantic layer |
+| S-02 | done | S-02 commit | props.yaml (11 objects + owner/visitor); 2-way existence test vs free bodies; 7 passed |
 | S-03 | todo | | sim/primitives.py |
 | S-04 | todo | | sim/motion.py plan-to-Motion dry run |
 | S-05 | todo | | sim/human.py scripted hand paths |

@@ -1,0 +1,59 @@
+# Semantic layer for kitchen.xml (S-02).
+# objects: keys MUST match the free-joint body names in kitchen.xml exactly
+#   (enforced by tests/test_props.py).
+# properties vocabulary: sharp, hot, liquid, fragile, electronic, medication,
+#   food. (Nothing in this scene is hot yet; the slot exists for the kettle.)
+
+objects:
+  chef_knife:
+    label: "chef's knife"
+    properties: [sharp]
+    owner: owner
+  jug:
+    label: "water jug"
+    properties: [liquid]
+    owner: owner
+  cup:
+    label: "cup"
+    properties: []
+    owner: owner
+  laptop:
+    label: "laptop"
+    properties: [electronic]
+    owner: owner
+  pill_bottle:
+    label: "pill bottle"
+    properties: [medication]
+    owner: owner
+  wine_glass:
+    label: "wine glass"
+    properties: [fragile]
+    owner: owner
+  plate:
+    label: "plate"
+    properties: []
+    owner: owner
+  apple:
+    label: "apple"
+    properties: [food]
+    owner: owner
+  sponge:
+    label: "sponge"
+    properties: []
+    owner: owner
+  phone:
+    label: "phone"
+    properties: [electronic]
+    owner: visitor
+  sticky_note:
+    label: "sticky note"
+    properties: []
+    owner: owner
+
+# people: authorised scopes; "all" approves any ASK. The visitor owns the
+# phone but is authorised for nothing, so touching it must ASK the owner.
+people:
+  owner:
+    authorised: [all]
+  visitor:
+    authorised: []
