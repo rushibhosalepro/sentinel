@@ -13,6 +13,7 @@ All paths below are relative to `sentinel/` unless stated.
 | P0-04 | done | P0-04 commit | day1.xml (Panda + table + mug + knife + front cam + backdrop wall), world.py renders RGB/depth/seg to out/; 0 bg px; verified visually + probe |
 | P0-05 | done | P0-05 commit | sim/ik.py mink+daqp IK, virtual grasp point (no site in panda.xml); target = 10 cm above mug rim, 8 iters, err 7e-06 m; out/day1_ik.png verified |
 | P0-06 | done | P0-06 commit | perception/sam.py streaming SAM-3.1, 1 box + 1 mask, confidence 0.84 → GO; overlay + cache verified |
+| P0-07 | done | P0-07 commit | pytest 9.1.1 (--dev); 5 tests pass in ~9 s (world, ik, sam replay) |
 
 ## Log
 

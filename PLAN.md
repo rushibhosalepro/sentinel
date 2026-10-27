@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.0** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.1** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -177,6 +177,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **P0-04** Load Panda + table + mug + knife; render RGB/depth/seg to PNG
 - [x] **P0-05** Move gripper above the mug with mink
 - [x] **P0-06** Send a frame to `sam-3.1` ("mug"), parse, draw box/mask → **go/no-go for SAM on renders**
+- [x] **P0-07** Phase 0 tests: `pytest` suite — scene loads + renders non-blank (`test_world.py`), IK error < 1 cm (`test_ik.py`), SAM cache replay with box+mask+confidence (`test_sam_parse.py`, skips without cache)
 - **Done when:** `python -m sim.world --demo` saves a frame and an overlay with SAM's mask.
 
 ### Phase 1: Simulation, primitives, Motion (Oct 28)
@@ -367,6 +368,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | Version | Date | Change |
 |---|---|---|
 | v1.0 | Oct 27 | First full plan |
+| v1.1 | Oct 27 | Add P0-07 (Phase 0 pytest suite) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
