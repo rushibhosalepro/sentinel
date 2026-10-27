@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.4** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.5** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -210,6 +210,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
+- [x] **L-00** (do first) Live vertical slice: `loop/live` prompts for instructions, Muse Spark plans from GT facts, Motion builds, stub ALLOW, executes in the viewer
 - [ ] **L-01** Meta Model API client + Baseten client (`muse-spark-open-1026`), retries, cost logging
 - [ ] **L-02** Privileged planner: owner text + graph facts → PlanStep[] (structured output)
 - [ ] **L-03** Quarantined reader: image → SceneText nodes only
@@ -374,6 +375,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.2 | Oct 27 | Add S-06 (scenario playback `sim/play.py` + headless attach test) |
 | v1.3 | Oct 27 | S-05: full procedural person (lean, IK arm, hand orientation); split front/demo cameras |
 | v1.4 | Oct 27 | Add S-07 (real hand-over with safe/unsafe variants) |
+| v1.5 | Oct 27 | Add L-00 (live vertical slice, do first) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

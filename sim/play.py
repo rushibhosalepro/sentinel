@@ -109,6 +109,24 @@ def _frame_at(times: np.ndarray, frames: np.ndarray, t: float) -> np.ndarray:
     return frames[min(max(idx, 0), len(frames) - 1)]
 
 
+def rollout_frames(model, data, plan, derived_from=None, on_sample=None):
+    """Dry-run a plan, capturing robot qpos per Motion sample. (L-00)
+
+    Shared by the handover scenarios and the live loop: returns
+    (motion, frames, times). `on_sample` sees each dry-run sample too.
+    """
+    frames = []
+
+    def hook(m, sim, state, ts):
+        frames.append(sim.qpos.copy())
+        if on_sample is not None:
+            on_sample(m, sim, state, ts)
+
+    motion = plan_to_motion(model, data, plan, derived_from,
+                            on_sample=hook)
+    return motion, np.stack(frames), np.array(motion["t"], dtype=float)
+
+
 def handle_pos(model: mujoco.MjModel, data: mujoco.MjData) -> np.ndarray:
     return data.geom_xpos[model.geom(HANDLE_GEOM).id].copy()
 
@@ -201,44 +219,39 @@ def build_handover(scenario: str) -> Handover:
     hand_id = model.body(ROBOT_HAND).id
     home_pos, home_quat = data.xpos[hand_id].copy(), data.xquat[hand_id].copy()
 
-    frames, handle_end = [], None
+    handle_end = None
 
-    def hook(m, sim, state, ts):
+    def track_handle(m, sim, state, ts):
         nonlocal handle_end
-        frames.append(sim.qpos.copy())
         handle_end = handle_pos(m, sim)
 
-    approach = plan_to_motion(model, data, plan,
-                              derived_from=f"play:{scenario}", on_sample=hook)
-    times_a = np.array(approach["t"], dtype=float)
+    approach, frames_a, times_a = rollout_frames(
+        model, data, plan, f"play:{scenario}", track_handle)
     t_arrive = float(times_a[-1])
     human_start = t_arrive  # the person starts reaching as the robot offers
     reach_origin = park_pos(model)
-    take = resolve_take(model, data, frames[-1], t_arrive, handle_end,
+    take = resolve_take(model, data, frames_a[-1], t_arrive, handle_end,
                         human_start, reach_origin)
 
     tmp = mujoco.MjData(model)
     mujoco.mj_copyData(tmp, model, data)
-    tmp.qpos[:] = frames[-1]
+    tmp.qpos[:] = frames_a[-1]
     mujoco.mj_forward(model, tmp)
     hover_pos = tmp.xpos[hand_id].copy()
     hover_quat = tmp.xquat[hand_id].copy()
     start = mujoco.MjData(model)
     mujoco.mj_copyData(start, model, data)
-    start.qpos[:] = frames[-1]  # knife rests at the offer, robot released
-    rframes = []
-    retract = plan_to_motion(
+    start.qpos[:] = frames_a[-1]  # knife rests at the offer, robot released
+    retract, rframes, times_r = rollout_frames(
         model, start, _retract_plan(
             home_pos, home_quat, hover_pos, hover_quat),
-        derived_from=f"play:{scenario}:retract",
-        on_sample=lambda m, sim, state, ts: rframes.append(sim.qpos.copy()))
-    times_r = np.array(retract["t"], dtype=float)
+        f"play:{scenario}:retract")
 
     hb = Handover(
         scenario=scenario, model=model, data=data,
-        approach_motion=approach, approach_frames=np.stack(frames),
+        approach_motion=approach, approach_frames=frames_a,
         approach_times=times_a, retract_motion=retract,
-        retract_frames=np.stack(rframes), retract_times=times_r,
+        retract_frames=rframes, retract_times=times_r,
         handle_end=handle_end, human_start_t=human_start,
         reach_origin=reach_origin, retreat_origin=None, take_tau=take,
         qpos_home=qpos_home, mocap_pos_home=mocap_pos_home,
