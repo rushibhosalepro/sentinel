@@ -1,9 +1,10 @@
 <mujoco model="kitchen">
   <!--
     Kitchen scene (S-01): Panda on a counter with free-joint props, a sticky
-    note, a mocap human hand (parked outside the workspace), and front + top
-    cameras. Quats only (the included panda.xml sets the compiler to radian,
-    which is ignored here; meshdir is re-declared below like in day1.xml).
+    note, a full mocap human person at the +x end (parked hand outside the
+    workspace), and front + top cameras. Quats only (the included panda.xml
+    sets the compiler to radian, which is ignored here; meshdir is re-declared
+    below like in day1.xml).
   -->
   <include file="../assets/mujoco_menagerie/franka_emika_panda/panda.xml"/>
 
@@ -144,9 +145,73 @@
             pos="0 0 0" rgba="0.98 0.9 0.3 1"/>
     </body>
 
-    <!-- Human hand (mocap): palm + four fingers + thumb on a sleeved forearm,
-         fingers along +y (reaching toward the counter). Parked to the side,
-         out of the front camera's view; driven in S-05. -->
+    <!-- Full human person at the +x end of the counter, facing -x (receives
+         with the left hand). Static pelvis + legs; the torso (head, trunk,
+         right arm) is a mocap body leaning into the reach, and the left arm
+         is two mocap segments posed by two-bone IK in sim/human.py. The arm
+         pos/quat below are the park-pose solution (see pose_body). -->
+    <body name="human_pelvis" pos="1.44 -0.14 -0.06">
+      <geom name="person_pelvis" type="box" size="0.09 0.13 0.07"
+            rgba="0.25 0.27 0.32 1"/>
+    </body>
+    <body name="human_leg_L" pos="1.43 -0.20 0">
+      <geom name="person_thigh_L" type="capsule" size="0.07"
+            fromto="0.01 0 -0.10 -0.01 0 -0.40" rgba="0.25 0.27 0.32 1"/>
+      <geom name="person_shin_L" type="capsule" size="0.055"
+            fromto="-0.01 0 -0.40 -0.01 0 -0.68" rgba="0.25 0.27 0.32 1"/>
+      <geom name="person_foot_L" type="box" size="0.09 0.045 0.03"
+            pos="-0.07 0 -0.72" rgba="0.15 0.14 0.16 1"/>
+    </body>
+    <body name="human_leg_R" pos="1.43 -0.08 0">
+      <geom name="person_thigh_R" type="capsule" size="0.07"
+            fromto="0.01 0 -0.10 -0.01 0 -0.40" rgba="0.25 0.27 0.32 1"/>
+      <geom name="person_shin_R" type="capsule" size="0.055"
+            fromto="-0.01 0 -0.40 -0.01 0 -0.68" rgba="0.25 0.27 0.32 1"/>
+      <geom name="person_foot_R" type="box" size="0.09 0.045 0.03"
+            pos="-0.07 0 -0.72" rgba="0.15 0.14 0.16 1"/>
+    </body>
+    <body name="human_torso" mocap="true" pos="1.44 -0.14 -0.02">
+      <geom name="person_torso" type="capsule" size="0.155"
+            fromto="0 0 0.06 -0.03 0 0.52" rgba="0.24 0.40 0.68 1"/>
+      <geom name="person_neck" type="capsule" size="0.05"
+            fromto="-0.03 0 0.50 -0.04 0 0.60" rgba="0.87 0.66 0.54 1"/>
+      <geom name="person_head" type="sphere" size="0.105"
+            pos="-0.05 0 0.70" rgba="0.87 0.66 0.54 1"/>
+      <geom name="person_hair" type="sphere" size="0.085"
+            pos="-0.075 0 0.755" rgba="0.25 0.16 0.10 1"/>
+      <geom name="person_shoulder_L" type="sphere" size="0.07"
+            pos="-0.01 -0.21 0.57" rgba="0.24 0.40 0.68 1"/>
+      <geom name="person_shoulder_R" type="sphere" size="0.07"
+            pos="-0.01 0.21 0.57" rgba="0.24 0.40 0.68 1"/>
+      <geom name="person_sleeve_R" type="capsule" size="0.055"
+            fromto="0 0.21 0.53 0.02 0.23 0.30" rgba="0.24 0.40 0.68 1"/>
+      <geom name="person_forearm_R" type="capsule" size="0.045"
+            fromto="0.02 0.23 0.30 0.0 0.23 0.10" rgba="0.87 0.66 0.54 1"/>
+      <geom name="person_hand_R" type="box" size="0.035 0.04 0.075"
+            pos="0 0.23 0.02" rgba="0.87 0.66 0.54 1"/>
+    </body>
+    <body name="human_upper_arm" mocap="true"
+          pos="1.43 -0.35 0.5499999999999999"
+          quat="0.593513828373481 0.788869446829041 0.1594563620213908 -0.0">
+      <geom name="person_upper_arm" type="capsule" size="0.055"
+            fromto="0 0 0 0 0 0.32" rgba="0.87 0.66 0.54 1"/>
+      <geom name="person_upper_sleeve" type="capsule" size="0.066"
+            fromto="0 0 -0.01 0 0 0.17" rgba="0.24 0.40 0.68 1"/>
+      <geom name="person_elbow" type="sphere" size="0.05"
+            pos="0 0 0.32" rgba="0.87 0.66 0.54 1"/>
+    </body>
+    <body name="human_forearm" mocap="true"
+          pos="1.490569315764367 -0.6496511523035996 0.4554455452611493"
+          quat="0.5209641157604568 -0.845861444078079 -0.11451990007012824 0.0">
+      <geom name="person_forearm" type="capsule" size="0.045"
+            fromto="0 0 0 0 0 0.34" rgba="0.87 0.66 0.54 1"/>
+      <geom name="person_forearm_cuff" type="capsule" size="0.052"
+            fromto="0 0 0.24 0 0 0.345" rgba="0.24 0.40 0.68 1"/>
+    </body>
+
+    <!-- Human hand (mocap): palm + four fingers + thumb, yawed onto the
+         forearm every step (fingers point elbow -> wrist, palm down).
+         Parked to the side; driven in S-05, the forearm meets the palm. -->
     <body name="human_hand" mocap="true" pos="1.45 -0.35 0.3">
       <geom name="hand_palm" type="box" size="0.038 0.042 0.011"
             rgba="0.87 0.66 0.54 1"/>
@@ -162,11 +227,10 @@
             fromto="-0.036 -0.012 0 -0.066 0.030 -0.002" rgba="0.87 0.66 0.54 1"/>
       <geom name="hand_wrist" type="capsule" size="0.026"
             fromto="0 -0.045 0 0 -0.065 0.002" rgba="0.87 0.66 0.54 1"/>
-      <geom name="hand_sleeve" type="capsule" size="0.034"
-            fromto="0 -0.075 0.002 0 -0.30 0.03" rgba="0.24 0.40 0.68 1"/>
     </body>
 
     <camera name="front" pos="0.3 -1.45 0.87" xyaxes="1 0 0 0 0.326 0.9454"/>
+    <camera name="demo" pos="0.73 -1.99 1.06" xyaxes="1 0 0 0 0.433 0.901" fovy="50"/>
     <camera name="top" pos="0.3 0 2.2" xyaxes="1 0 0 0 1 0"/>
   </worldbody>
 </mujoco>
