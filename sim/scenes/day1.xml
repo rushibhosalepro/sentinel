@@ -14,11 +14,18 @@
 
   <visual>
     <global offwidth="1280" offheight="960"/>
+    <!-- Sharp shadows: a bigger shadow map, clipped to ~1.2 m around the table
+         instead of the infinite floor (fixes blocky edges and acne on the arm). -->
+    <quality shadowsize="8192"/>
+    <map shadowclip="1.2"/>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.3 0.3 0.3" specular="0 0 0"/>
   </visual>
 
   <worldbody>
     <light name="key" directional="true" diffuse="0.7 0.7 0.7"
-           specular="0.3 0.3 0.3" pos="1.5 -1 2.5" dir="-0.4 0.3 -1"/>
+           specular="0.3 0.3 0.3" pos="0.4 -0.3 3" dir="-0.12 0.1 -1"/>
+    <light name="fill" directional="true" castshadow="false" diffuse="0.25 0.25 0.25"
+           specular="0 0 0" pos="-1 1 2" dir="0.3 -0.3 -1"/>
     <geom name="floor" type="plane" size="0 0 0.1" pos="0 0 -0.75"
           rgba="0.85 0.85 0.88 1"/>
     <!-- Backdrop wall behind the table: fills the background (no black band). -->
