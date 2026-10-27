@@ -70,8 +70,31 @@ def load_props(path: Path | None = None) -> dict:
         return yaml.safe_load(f)
 
 
-def _box(model, data, body_name: str):
-    return body_aabb(model, data, model.body(body_name).id)
+RELATION_TYPES = {EDGE_ON, EDGE_NEAR, EDGE_ABOVE, EDGE_INSIDE}
+
+
+def recompute_relations(g: nx.MultiDiGraph, ts: float) -> int:
+    """Replace all relation edges from node bbox3d attrs. (G-04)
+
+    Shared by the GT builder and the SAM tracker: both store a world-space
+    AABB on every Object/BodyPart node, and relations are derived from
+    those boxes alone -- never from the sim. Stale nodes keep their last
+    known box, so their relations persist as best-known estimates.
+    """
+    old = [(a, b, k) for a, b, k, d in g.edges(keys=True, data=True)
+           if d.get("type") in RELATION_TYPES]
+    for a, b, k in old:
+        g.remove_edge(a, b, k)
+    boxes = {}
+    for node, attrs in g.nodes(data=True):
+        if attrs.get("type") in (NODE_OBJECT, NODE_BODYPART) and "bbox3d" in attrs:
+            xyz = attrs["bbox3d"]
+            boxes[node] = (np.array(xyz[:3]), np.array(xyz[3:]))
+    n = 0
+    for a, b, rel, dist_cm in _relation_edges(boxes, ts):
+        g.add_edge(a, b, type=rel, dist_cm=dist_cm, ts=ts)
+        n += 1
+    return n
 
 
 def _relation_edges(boxes: dict[str, tuple], ts: float) -> list[tuple]:
@@ -153,27 +176,22 @@ def build_ground_truth(model, data, props: dict | None = None,
 
     gripper = bodypart_id(GRIPPER_BODY)
     gid = model.body(GRIPPER_BODY).id
+    glo, ghi = body_aabb(model, data, gid)
     g.add_node(gripper, type=NODE_BODYPART, kind="gripper",
                pos=data.xpos[gid].tolist(), velocity=[0.0, 0.0, 0.0],
-               last_seen=ts)
+               bbox3d=[*glo.tolist(), *ghi.tolist()], last_seen=ts)
     hand = bodypart_id(HUMAN_BODY)
     hid = model.body(HUMAN_BODY).id
+    hlo, hhi = body_aabb(model, data, hid)
     g.add_node(hand, type=NODE_BODYPART, kind="hand",
                pos=data.xpos[hid].tolist(), velocity=[0.0, 0.0, 0.0],
-               last_seen=ts)
+               bbox3d=[*hlo.tolist(), *hhi.tolist()], last_seen=ts)
     g.add_edge(person_id("owner"), hand, type=EDGE_HAS, ts=ts)
 
     for holder, obj in held.items():
         g.add_edge(holder, obj, type=EDGE_HOLDS, ts=ts)
 
-    boxes = {}
-    for node, attrs in g.nodes(data=True):
-        if attrs["type"] == NODE_OBJECT:
-            boxes[node] = _box(model, data, node)
-        elif attrs["type"] == NODE_BODYPART:
-            boxes[node] = _box(model, data, node.split(":", 1)[1])
-    for a, b, rel, dist_cm in _relation_edges(boxes, ts):
-        g.add_edge(a, b, type=rel, dist_cm=dist_cm, ts=ts)
+    recompute_relations(g, ts)  # same code path as the SAM graph (G-04)
     return g
 
 
@@ -201,9 +219,10 @@ def init_perception_graph(model, data, props: dict | None = None,
                last_seen=ts, stale=False, static=True, held=False,
                owner="owner")
     gid = model.body(GRIPPER_BODY).id
+    glo, ghi = body_aabb(model, data, gid)
     g.add_node(bodypart_id(GRIPPER_BODY), type=NODE_BODYPART, kind="gripper",
                pos=data.xpos[gid].tolist(), velocity=[0.0, 0.0, 0.0],
-               last_seen=ts)
+               bbox3d=[*glo.tolist(), *ghi.tolist()], last_seen=ts)
     return g
 
 
@@ -284,7 +303,9 @@ def update_from_detections(g: nx.MultiDiGraph, detections,
                 and not attrs.get("static") and node not in updated):
             attrs["stale"] = True
             stale.append(node)
-    return {"assigned": assigned, "dropped": dropped, "stale": stale}
+    n_rel = recompute_relations(g, ts)  # same code path as GT (G-04)
+    return {"assigned": assigned, "dropped": dropped, "stale": stale,
+            "relations": n_rel}
 
 
 def print_graph(g: nx.MultiDiGraph) -> None:
@@ -302,14 +323,37 @@ def print_graph(g: nx.MultiDiGraph) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Print the GT scene graph.")
+    parser = argparse.ArgumentParser(
+        description="Print GT and SAM scene graphs side by side.")
     parser.add_argument("--demo", choices=["kitchen"])
     args = parser.parse_args()
     if args.demo != "kitchen":
         parser.print_help()
         return
+    from perception.detections import detections_from_cache
+    from perception.lift3d import camera_params
+    from sim.world import OUT_DIR, render
+
     model, data = load_scene("kitchen")
-    print_graph(build_ground_truth(model, data))
+    gt = build_ground_truth(model, data)
+    print("=== ground truth ===")
+    print_graph(gt)
+
+    image_path = OUT_DIR / "kitchen_front.png"
+    frame = render(model, data, camera="front", width=640, height=480)
+    depth = frame["depth"]
+    cam = camera_params(model, data, "front", 640, 480)
+    try:
+        dets = detections_from_cache(image_path, depth, cam)
+    except FileNotFoundError as e:
+        print(f"=== SAM graph ===\nskipped: {e}")
+        return
+    sam_g = init_perception_graph(model, data)
+    stats = update_from_detections(sam_g, dets, ts=data.time)
+    print("=== SAM (from cache, no network) ===")
+    print(f"detections={len(dets)} assigned={len(stats['assigned'])} "
+          f"dropped={len(stats['dropped'])} stale={len(stats['stale'])}")
+    print_graph(sam_g)
 
 
 if __name__ == "__main__":

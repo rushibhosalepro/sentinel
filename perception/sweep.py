@@ -76,13 +76,8 @@ def main() -> None:
     if args.demo != "kitchen":
         parser.print_help()
         return
-    props = load_props()
-    prompts: list[str] = []
-    for spec in props["objects"].values():
-        for p in spec.get("prompts", [spec["label"]]):
-            if p not in prompts:
-                prompts.append(p)
-    prompts.append("hand")
+    from perception.detections import sweep_prompts
+    prompts = sweep_prompts(load_props())
     print(f"sweeping {len(prompts)} prompts on {args.image}:")
     results = sweep(REPO_ROOT / args.image, prompts, refresh=args.refresh)
     for i, (prompt, summary) in enumerate(results.items()):

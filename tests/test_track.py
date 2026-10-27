@@ -1,10 +1,13 @@
-"""G-03: association (label + nearest position) and permanence (stale)."""
+"""G-03: association (label + nearest position) and permanence (stale).
+G-04: relations on the SAM graph, same code path as GT."""
 
 import numpy as np
 import pytest
 
-from graph.scene_graph import init_perception_graph, update_from_detections
+from graph.scene_graph import (RELATION_TYPES, init_perception_graph,
+                               update_from_detections)
 from perception.lift3d import Detection
+from sim.geometry import body_aabb
 from sim.world import load_scene
 
 
@@ -65,3 +68,64 @@ def test_unknown_prompt_dropped(ctx):
         g, [_det("hand", 0.9, gt["cup"])], ts=1.0)
     assert stats["dropped"] == [("hand", "no-listing-object")]
     assert stats["assigned"] == []
+
+
+def _det_at(model, data, prompt, conf, body):
+    """Detection carrying the true AABB (a perfect SAM lift)."""
+    lo, hi = body_aabb(model, data, model.body(body).id)
+    return Detection(prompt=prompt, conf=conf, box2d=(0, 0, 10, 10),
+                     centroid=(lo + hi) / 2, bbox_min=lo, bbox_max=hi,
+                     n_points=500)
+
+
+def _edge(g, a, rel, b):
+    for u, v, d in g.edges(data=True):
+        if u == a and v == b and d["type"] == rel:
+            return d
+    raise AssertionError(f"missing {rel} {a} {b}")
+
+
+def _rels(g):
+    return [(u, v, d) for u, v, d in g.edges(data=True)
+            if d["type"] in RELATION_TYPES]
+
+
+def test_relations_from_sam_boxes(ctx):
+    model, data, _ = ctx
+    g = init_perception_graph(model, data)
+    stats = update_from_detections(g, [
+        _det_at(model, data, "cup", 0.9, "cup"),
+        _det_at(model, data, "pill bottle", 0.8, "pill_bottle"),
+    ], ts=1.0)
+    assert stats["relations"] > 0
+    # Same relations GT reports, derived from SAM-side boxes only.
+    assert _edge(g, "cup", "ON", "counter")["dist_cm"] == 0.0
+    assert _edge(g, "pill_bottle", "ON", "counter")["dist_cm"] == 0.0
+    assert _edge(g, "cup", "NEAR", "pill_bottle")["dist_cm"] == 6.9
+    assert _edge(g, "bp:hand", "ABOVE", "counter")["dist_cm"] == 59.3
+
+
+def test_relation_ts_refresh_no_accumulation(ctx):
+    model, data, _ = ctx
+    g = init_perception_graph(model, data)
+    dets = [_det_at(model, data, "cup", 0.9, "cup")]
+    update_from_detections(g, dets, ts=1.0)
+    n1 = len(_rels(g))
+    update_from_detections(g, dets, ts=2.0)
+    rels = _rels(g)
+    assert len(rels) == n1  # replaced, not accumulated
+    assert all(d["ts"] == 2.0 for _, _, d in rels)
+
+
+def test_stale_nodes_keep_relations(ctx):
+    model, data, _ = ctx
+    g = init_perception_graph(model, data)
+    update_from_detections(g, [
+        _det_at(model, data, "cup", 0.9, "cup"),
+        _det_at(model, data, "sponge", 0.8, "sponge"),
+    ], ts=1.0)
+    stats = update_from_detections(
+        g, [_det_at(model, data, "cup", 0.9, "cup")], ts=2.0)
+    assert stats["stale"] == ["sponge"]
+    # Best-known relations refresh even for the stale node.
+    assert _edge(g, "sponge", "ON", "counter")["ts"] == 2.0
