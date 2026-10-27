@@ -1,0 +1,63 @@
+<mujoco model="day1">
+  <!--
+    Day-1 scene (P0-04): Franka Panda on a table with a procedural mug and
+    knife, viewed by a front camera. All props are welded (static); dynamics
+    and grasping arrive with kitchen.xml in Phase 1.
+    Angles: this file uses quats only (panda.xml sets the compiler to radian).
+  -->
+  <include file="../assets/mujoco_menagerie/franka_emika_panda/panda.xml"/>
+
+  <!-- Included files' <compiler> is ignored: re-declare the mesh dir here,
+       relative to this file. (Neither file uses euler angles.) -->
+  <compiler meshdir="../assets/mujoco_menagerie/franka_emika_panda/assets"
+            autolimits="true"/>
+
+  <visual>
+    <global offwidth="1280" offheight="960"/>
+  </visual>
+
+  <worldbody>
+    <light name="key" directional="true" diffuse="0.7 0.7 0.7"
+           specular="0.3 0.3 0.3" pos="1.5 -1 2.5" dir="-0.4 0.3 -1"/>
+    <geom name="floor" type="plane" size="0 0 0.1" pos="0 0 -0.75"
+          rgba="0.85 0.85 0.88 1"/>
+
+    <!-- Table: top surface at z=0, robot base sits on it. -->
+    <body name="table" pos="0 0 0">
+      <geom name="table_top" type="box" size="0.55 0.35 0.02" pos="0.3 0 -0.02"
+            rgba="0.55 0.38 0.25 1"/>
+      <geom name="leg_fl" type="box" size="0.03 0.03 0.355" pos="-0.2 0.3 -0.395"
+            rgba="0.45 0.3 0.2 1"/>
+      <geom name="leg_fr" type="box" size="0.03 0.03 0.355" pos="-0.2 -0.3 -0.395"
+            rgba="0.45 0.3 0.2 1"/>
+      <geom name="leg_rl" type="box" size="0.03 0.03 0.355" pos="0.8 0.3 -0.395"
+            rgba="0.45 0.3 0.2 1"/>
+      <geom name="leg_rr" type="box" size="0.03 0.03 0.355" pos="0.8 -0.3 -0.395"
+            rgba="0.45 0.3 0.2 1"/>
+    </body>
+
+    <!-- Mug: red cylinder + coffee disk + capsule handle on +x side. -->
+    <body name="mug" pos="0.5 0.12 0">
+      <geom name="mug_body" type="cylinder" size="0.04 0.0475" pos="0 0 0.0475"
+            rgba="0.8 0.2 0.15 1"/>
+      <geom name="mug_coffee" type="cylinder" size="0.035 0.002" pos="0 0 0.09"
+            rgba="0.2 0.1 0.05 1"/>
+      <geom name="mug_handle_v" type="capsule" size="0.008 0.02" pos="0.052 0 0.05"
+            rgba="0.8 0.2 0.15 1"/>
+      <geom name="mug_handle_top" type="capsule" size="0.008 0.008" pos="0.046 0 0.07"
+            quat="0.7071 0 0.7071 0" rgba="0.8 0.2 0.15 1"/>
+      <geom name="mug_handle_bot" type="capsule" size="0.008 0.008" pos="0.046 0 0.03"
+            quat="0.7071 0 0.7071 0" rgba="0.8 0.2 0.15 1"/>
+    </body>
+
+    <!-- Knife: steel blade along +x, dark handle along -x, yawed -25 deg. -->
+    <body name="knife" pos="0.42 -0.16 0.0015" quat="0.9763 0 0 -0.2164">
+      <geom name="knife_blade" type="box" size="0.055 0.011 0.0015" pos="0.05 0 0"
+            rgba="0.75 0.77 0.8 1"/>
+      <geom name="knife_handle" type="box" size="0.045 0.013 0.004" pos="-0.05 0 0.0025"
+            rgba="0.15 0.12 0.1 1"/>
+    </body>
+
+    <camera name="front" pos="0.3 -1.45 0.87" xyaxes="1 0 0 0 0.326 0.9454"/>
+  </worldbody>
+</mujoco>

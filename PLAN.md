@@ -174,7 +174,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **P0-01** Create public repo `sentinel`, MIT licence, `uv init`, `.env.example`, copy this PLAN.md
 - [x] **P0-02** Install `mujoco mink daqp numpy pillow imageio[ffmpeg] fastapi uvicorn openai meta-sam-parser pyyaml networkx`
 - [x] **P0-03** Clone MuJoCo Menagerie (Panda) + Google Scanned Objects; record licences
-- [ ] **P0-04** Load Panda + table + mug + knife; render RGB/depth/seg to PNG
+- [x] **P0-04** Load Panda + table + mug + knife; render RGB/depth/seg to PNG
 - [ ] **P0-05** Move gripper above the mug with mink
 - [ ] **P0-06** Send a frame to `sam-3.1` ("mug"), parse, draw box/mask → **go/no-go for SAM on renders**
 - **Done when:** `python -m sim.world --demo` saves a frame and an overlay with SAM's mask.
