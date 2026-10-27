@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from graph.scene_graph import load_props
-from planner.planner import plan_from_content
+from planner.planner import plan_from_content, scene_facts
 from sim.motion import plan_to_motion
 from sim.world import load_scene
 
@@ -69,3 +69,25 @@ def test_invalid_plans_rejected(content, match):
     steps, err = plan_from_content(content, {"cup"})
     assert steps is None
     assert match in err
+
+
+def test_hand_to_validates_person():
+    ok, err = plan_from_content(
+        _plan(_step("h", "hand_to", {"person": "owner"})),
+        {"cup"}, {"owner", "visitor"})
+    assert err is None and ok[0]["primitive"] == "hand_to"
+    bad, err = plan_from_content(
+        _plan(_step("h", "hand_to", {"person": "stranger"})),
+        {"cup"}, {"owner", "visitor"})
+    assert bad is None and "unknown person 'stranger'" in err
+
+
+def test_scene_facts_include_people():
+    model, data = load_scene("kitchen")
+    facts = scene_facts(model, data, load_props(), reaching=True)
+    by_id = {p["id"]: p for p in facts["people"]}
+    assert set(by_id) == {"owner", "visitor"}
+    owner = by_id["owner"]
+    assert owner["present"] is True and owner["reaching"] is True
+    assert len(owner["hand_pos"]) == 3 and len(owner["torso_pos"]) == 3
+    assert by_id["visitor"]["present"] is False

@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.6** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.7** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -135,7 +135,7 @@ sentinel/
 
 ```python
 # planner output (structured output schema)
-PlanStep = {"id": str, "primitive": "move_to|grasp|release|tilt|set_speed|stop",
+PlanStep = {"id": str, "primitive": "move_to|grasp|release|tilt|set_speed|stop|hand_to",
             "args": dict, "serves_instruction": str, "why": str}
 
 # sim/motion.py output, the ONE object Sentinel checks
@@ -161,7 +161,7 @@ Event = {"id": str, "type": "verdict|ask_answer|halt|preflight_surprise|unknown_
          "ts": float, "data": dict}
 ```
 
-**Primitives** (the only actions the planner may use): `move_to(pose)`, `grasp(object_id)`, `release()`, `tilt(deg)`, `set_speed(slow|normal)`, `stop()`.
+**Primitives** (the only actions the planner may use): `move_to(pose)`, `grasp(object_id)`, `release()`, `tilt(deg)`, `set_speed(slow|normal)`, `stop()`, plus the planner skill `hand_to(person)` (NOT a sim primitive: `loop/live` expands it to slow → offer 25 cm short of the hand → person reaches → wait 5 cm → release + transfer → retract → person steps back).
 
 **Verdict order:** BLOCK > HALT > ASK > ALLOW. **A BLOCK is never approvable and never gets feedback.**
 
@@ -378,6 +378,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.4 | Oct 27 | Add S-07 (real hand-over with safe/unsafe variants) |
 | v1.5 | Oct 27 | Add L-00 (live vertical slice, do first) |
 | v1.6 | Oct 27 | Motion gains sample_steps (per-sample step ids) |
+| v1.7 | Oct 27 | Planner skill hand_to (person) + people in facts |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

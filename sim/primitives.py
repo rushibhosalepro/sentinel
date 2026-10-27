@@ -157,6 +157,17 @@ def move_to(model, data, state, pose, clock, on_sample) -> None:
     state.tilt_deg = _tilt_of_quat(_hand_pose(model, data)[1])
 
 
+def capture_hold(model, data, state, object_id) -> None:
+    """Start holding: T_hand^-1 @ T_obj from the current poses (no checks)."""
+    adr = _free_qposadr(model, object_id)  # raises if not graspable
+    hand_pos, hand_quat = _hand_pose(model, data)
+    obj_pos = data.qpos[adr:adr + 3]
+    obj_quat = data.qpos[adr + 3:adr + 7]
+    state.hold_offset = (np.linalg.inv(_se3(hand_pos, hand_quat))
+                         @ _se3(obj_pos, obj_quat))
+    state.held = object_id
+
+
 def grasp(model, data, state, object_id, clock, on_sample) -> None:
     """Kinematic attach: fails unless the gripper is within GRASP_REACH
     of the object surface (approximate), already holding, or unknown."""
@@ -180,12 +191,7 @@ def grasp(model, data, state, object_id, clock, on_sample) -> None:
         raise GraspFailed(
             f"{object_id} {dist:.2f} m from gripper (reach {GRASP_REACH} m)")
 
-    hand_pos, hand_quat = _hand_pose(model, data)
-    obj_pos = data.qpos[adr:adr + 3]
-    obj_quat = data.qpos[adr + 3:adr + 7]
-    state.hold_offset = (np.linalg.inv(_se3(hand_pos, hand_quat))
-                         @ _se3(obj_pos, obj_quat))
-    state.held = object_id
+    capture_hold(model, data, state, object_id)
 
     fadrs = _finger_adrs(model)
     f0 = data.qpos[fadrs].copy()

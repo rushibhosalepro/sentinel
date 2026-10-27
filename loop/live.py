@@ -6,17 +6,22 @@ validate, dry-run the Motion, pass Sentinel, preview the path, and execute.
 
 Planning + rollout run in a background thread; the main thread only renders
 (60 fps), steps execution, and updates the overlay, so the viewer never
-freezes while the model thinks.
+freezes while the model thinks. Plans containing hand_to execute as
+segments: plain primitive runs plus live hand-overs (loop/handover.py).
 
 Usage:
     uv run python -m loop.live
+    uv run python -m loop.live --instruction "..." --record out/live.mp4
 
-Keys: F1 = person reaches in, F2 = toggle camera, F5 = reset, Esc = quit.
+Keys: F1 = person reaches in (random), F2 = toggle camera, F5 = reset,
+Esc = quit.
 """
 
 from __future__ import annotations
 
+import argparse
 import queue
+import random
 import threading
 import time
 
@@ -24,11 +29,11 @@ import mujoco
 import numpy as np
 
 from graph.scene_graph import load_props
+from loop.handover import build_execution_script, step_handover
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
-from sim.human import HANDOVER_HOVER, reach_to_counter
-from sim.play import REACH_DURATION, rollout_frames
-from sim.primitives import PrimitiveError
+from sim.human import HANDOVER_HOVER, park_pos, reach_to_counter
+from sim.play import HAND_BODY, REACH_DURATION, drag_with_hand
 from sim.world import load_scene
 
 KEY_F1 = 290  # GLFW physical keys (no letters: safe while typing)
@@ -95,6 +100,8 @@ def _step_arg(s: dict) -> str:
         return "[" + ", ".join(xyz) + "]"
     if "object_id" in args:
         return str(args["object_id"])
+    if "person" in args:
+        return str(args["person"])
     if "deg" in args:
         return f"{args['deg']} deg"
     if "speed" in args:
@@ -111,7 +118,8 @@ def _overlay_text(st: dict) -> str:
     elif phase == "preview":
         lines.append("previewing path...")
     elif phase == "executing":
-        lines.append("executing...")
+        n = len(st["script"]) if st["script"] else 0
+        lines.append(f"executing... (segment {st['seg_i'] + 1}/{n})")
     elif phase == "done":
         lines.append("Done")
     elif phase == "error":
@@ -155,10 +163,15 @@ def _motion_summary(motion: dict) -> str:
 
 
 def _step_person(model, data, person: dict) -> None:
-    if person["active"]:
-        elapsed = time.perf_counter() - person["t0"]
-        reach_to_counter(model, data, elapsed, 0.0, REACH_DURATION,
-                         HANDOVER_HOVER)
+    if not person["active"]:
+        return
+    elapsed = time.perf_counter() - person["t0"]
+    reach_to_counter(model, data, elapsed, 0.0, REACH_DURATION,
+                     person["target"], face=person["face"],
+                     origin=person["origin"])
+    if person["carrying"] is not None:
+        drag_with_hand(model, data, person["carrying"]["obj"],
+                       person["carrying"]["offset"])
 
 
 def _restore(model, data, home: dict, person: dict) -> None:
@@ -166,12 +179,13 @@ def _restore(model, data, home: dict, person: dict) -> None:
     data.mocap_pos[:] = home["mocap_pos"]
     data.mocap_quat[:] = home["mocap_quat"]
     data.time = 0.0
-    person["active"] = False
+    person.update(active=False, target=HANDOVER_HOVER, face=None,
+                  origin=None, carrying=None)
     mujoco.mj_forward(model, data)
 
 
 def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
-    """Background thread: plan + dry-run off a snapshot (never live data)."""
+    """Background thread: plan + dry-run the script off a snapshot."""
     while True:
         job = jobs.get()
         if job is None:
@@ -182,21 +196,19 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             results.put({"gen": job["gen"],
                          "error": f"planner error: {e}"})
             continue
-        steps, err = plan_from_content(content, job["valid_ids"])
+        steps, err = plan_from_content(content, job["valid_ids"],
+                                       job["valid_people"])
         if err is not None:
             results.put({"gen": job["gen"],
                          "error": f"invalid plan: {err}"})
             continue
-        try:
-            motion, frames, times = rollout_frames(
-                model, job["data"], steps,
-                derived_from=f"live:{job['instruction'][:40]}")
-        except PrimitiveError as e:
-            results.put({"gen": job["gen"],
-                         "error": f"cannot build Motion: {e}"})
+        script, err = build_execution_script(
+            model, job["data"], steps, job["home_pos"], job["home_quat"],
+            job["instruction"])
+        if err is not None:
+            results.put({"gen": job["gen"], "error": err})
             continue
-        results.put({"gen": job["gen"], "steps": steps, "motion": motion,
-                     "frames": frames, "times": times})
+        results.put({"gen": job["gen"], "steps": steps, "script": script})
 
 
 def _reader(lines: queue.Queue) -> None:
@@ -214,30 +226,125 @@ def _reset_all(viewer, model, data, home, person, st) -> None:
         _restore(model, data, home, person)
         _clear_preview(viewer)
         _draw_orb(viewer, ORB_IDLE)
-    st.update(phase="idle", instruction="", steps=None, motion=None,
-              frames=None, times=None, verdict=None, error=None,
-              current=None)
+    st.update(phase="idle", instruction="", steps=None, script=None,
+              seg_i=0, motion=None, verdict=None, error=None, current=None)
+
+
+def _random_reach_target() -> np.ndarray:
+    return np.array([random.uniform(0.15, 0.65),
+                     random.uniform(-0.3, 0.25), 0.33])
+
+
+def _run_headless(instruction: str, out_path: str, fps: int = 30) -> None:
+    """One instruction, no window: execute and save an mp4 (verification)."""
+    import imageio.v2 as imageio
+    from pathlib import Path
+
+    from sim.world import HEIGHT, WIDTH
+
+    model, data = load_scene("kitchen")
+    props = load_props()
+    facts = scene_facts(model, data, props)
+    content = plan_instruction(instruction, facts)
+    steps, err = plan_from_content(content, set(props["objects"]),
+                                   set(props["people"]))
+    if err is not None:
+        print(f"invalid plan: {err} (not moving)")
+        raise SystemExit(1)
+    _print_plan(steps)
+    hand_id = model.body("hand").id
+    script, err = build_execution_script(
+        model, data, steps, data.xpos[hand_id].copy(),
+        data.xquat[hand_id].copy(), instruction)
+    if err is not None:
+        print(f"{err} (not moving)")
+        raise SystemExit(1)
+    print(_motion_summary(script["motion"]))
+    verdict = check(script["motion"])
+    print(f"Sentinel: {verdict['kind']}")
+    if verdict["kind"] != "ALLOW":
+        raise SystemExit(1)
+    dt = 1.0 / fps
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    takers: list[tuple[str, bool]] = []
+    try:
+        with imageio.get_writer(out, fps=fps, codec="libx264",
+                                quality=8) as writer:
+            for kind, payload in script["segments"]:
+                if kind == "prims":
+                    frames, times = payload["frames"], payload["times"]
+                    n = max(1, int(np.ceil(float(times[-1]) / dt)))
+                    for k in range(n + 1):
+                        tau = min(k * dt, float(times[-1]))
+                        idx = min(max(int(np.searchsorted(
+                            times, tau, side="right") - 1), 0),
+                            len(frames) - 1)
+                        data.qpos[:] = frames[idx]
+                        mujoco.mj_forward(model, data)
+                        renderer.update_scene(data, camera="demo")
+                        writer.append_data(renderer.render())
+                else:
+                    lh = payload["lh"].fresh(data)
+                    guard = 0
+                    while True:
+                        _, done = step_handover(lh, dt)
+                        renderer.update_scene(data, camera="demo")
+                        writer.append_data(renderer.render())
+                        guard += 1
+                        if done or guard > 5000:
+                            break
+                    takers.append((lh.obj, lh.transferred))
+                    if not lh.transferred:
+                        print("hand-over not taken")
+                        break
+    finally:
+        renderer.close()
+    hid = model.body(HAND_BODY).id
+    for obj, ok in takers:
+        gap = float(np.linalg.norm(
+            data.xpos[hid] - data.xpos[model.body(obj).id]))
+        print(f"final: {obj} {'taken' if ok else 'NOT taken'}, "
+              f"hand-object gap {gap * 100:.1f} cm")
+    print(f"saved {out}")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Live instruction loop (viewer + terminal prompt).")
+    parser.add_argument("--instruction", default=None)
+    parser.add_argument("--record", default=None, metavar="OUT.mp4",
+                        help="headless: run one instruction, save a video")
+    args = parser.parse_args()
+    if bool(args.record) != bool(args.instruction):
+        parser.error("--record and --instruction go together")
+    if args.record:
+        _run_headless(args.instruction, args.record)
+        return
+
     model, data = load_scene("kitchen")
     props = load_props()
     valid_ids = set(props["objects"])
+    valid_people = set(props["people"])
+    hand_id = model.body("hand").id
     home = {"qpos": data.qpos.copy(),
             "mocap_pos": data.mocap_pos.copy(),
-            "mocap_quat": data.mocap_quat.copy()}
-    person = {"active": False, "t0": 0.0}
-    flags = {"reset": False, "quit": False, "cam": False}
+            "mocap_quat": data.mocap_quat.copy(),
+            "hand_pos": data.xpos[hand_id].copy(),
+            "hand_quat": data.xquat[hand_id].copy()}
+    person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
+              "face": None, "origin": None, "carrying": None}
+    flags = {"reach": False, "reset": False, "quit": False, "cam": False}
     st = {"phase": "idle", "instruction": "", "plan_start": 0.0,
-          "steps": None, "motion": None, "frames": None, "times": None,
-          "verdict": None, "error": None, "exec_t0": 0.0,
-          "preview_until": 0.0, "current": None, "gen": 0, "cam": "demo"}
+          "steps": None, "script": None, "seg_i": 0, "seg_t0": 0.0,
+          "motion": None, "verdict": None, "error": None,
+          "exec_t0": 0.0, "preview_until": 0.0, "current": None,
+          "gen": 0, "cam": "demo", "last_t": 0.0}
 
     def key_callback(keycode: int) -> None:
         if keycode == KEY_F1:
-            person["active"] = True
-            person["t0"] = time.perf_counter()
-            print("person reaching in")
+            flags["reach"] = True
         elif keycode == KEY_F2:
             flags["cam"] = True
         elif keycode == KEY_F5:
@@ -260,12 +367,16 @@ def main() -> None:
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
     eof = False
+    st["last_t"] = time.perf_counter()
     try:
         with viewer.lock():
             _draw_orb(viewer, ORB_IDLE)
         while viewer.is_running() and not flags["quit"] and not (
                 eof and st["phase"] not in ("planning", "preview",
                                             "executing")):
+            now = time.perf_counter()
+            wall_dt = now - st["last_t"]
+            st["last_t"] = now
             if flags["reset"]:
                 flags["reset"] = False
                 _reset_all(viewer, model, data, home, person, st)
@@ -276,6 +387,15 @@ def main() -> None:
                 with viewer.lock():
                     viewer.cam.fixedcamid = model.camera(st["cam"]).id
                 print(f"camera: {st['cam']}")
+            if flags["reach"]:
+                flags["reach"] = False
+                with viewer.lock():
+                    origin = data.xpos[
+                        model.body("human_hand").id].copy()
+                    person.update(active=True, t0=now,
+                                  target=_random_reach_target(), face=None,
+                                  origin=origin)
+                print("person reaching in")
             try:
                 line = lines.get_nowait()
             except queue.Empty:
@@ -295,15 +415,19 @@ def main() -> None:
                         with viewer.lock():
                             scratch = mujoco.MjData(model)
                             mujoco.mj_copyData(scratch, model, data)
-                            facts = scene_facts(model, data, props)
+                            facts = scene_facts(
+                                model, data, props,
+                                reaching=person["active"])
                         jobs.put({"gen": st["gen"], "instruction": text,
                                   "facts": facts, "data": scratch,
-                                  "valid_ids": valid_ids})
+                                  "valid_ids": valid_ids,
+                                  "valid_people": valid_people,
+                                  "home_pos": home["hand_pos"],
+                                  "home_quat": home["hand_quat"]})
                         st.update(phase="planning", instruction=text,
-                                  plan_start=time.perf_counter(),
-                                  steps=None, motion=None, frames=None,
-                                  times=None, verdict=None, error=None,
-                                  current=None)
+                                  plan_start=now, steps=None, script=None,
+                                  seg_i=0, motion=None, verdict=None,
+                                  error=None, current=None)
                         with viewer.lock():
                             _draw_orb(viewer, ORB_IDLE)
             try:
@@ -316,13 +440,13 @@ def main() -> None:
                     print(f"{res['error']} (not moving)")
                 else:
                     st.update(phase="preview", steps=res["steps"],
-                              motion=res["motion"], frames=res["frames"],
-                              times=res["times"],
-                              preview_until=time.perf_counter() + PREVIEW_T)
+                              script=res["script"]["segments"],
+                              motion=res["script"]["motion"], seg_i=0,
+                              preview_until=now + PREVIEW_T)
                     _print_plan(res["steps"])
-                    print(_motion_summary(res["motion"]))
+                    print(_motion_summary(res["script"]["motion"]))
                     try:
-                        verdict = check(res["motion"])
+                        verdict = check(res["script"]["motion"])
                     except Exception as e:  # noqa: BLE001 - stub never raises
                         st.update(phase="error",
                                   error=f"Sentinel error: {e}")
@@ -341,28 +465,73 @@ def main() -> None:
                                     viewer,
                                     ORB_COLORS.get(verdict["kind"], ORB_IDLE))
                                 _show_preview(viewer, model, data,
-                                              res["motion"], res["steps"])
-            if st["phase"] == "preview" and \
-                    time.perf_counter() >= st["preview_until"]:
+                                              res["script"]["motion"],
+                                              res["steps"])
+            if st["phase"] == "preview" and now >= st["preview_until"]:
                 with viewer.lock():
                     _clear_preview(viewer)
-                st.update(phase="executing",
-                          exec_t0=time.perf_counter())
+                st.update(phase="executing", seg_i=0, seg_t0=now,
+                          exec_t0=now)
             if st["phase"] == "executing":
-                tau = time.perf_counter() - st["exec_t0"]
-                times, frames = st["times"], st["frames"]
-                if tau >= float(times[-1]) + SETTLE_T:
-                    st.update(phase="done", current=None)
-                    print("Done")
+                kind, payload = st["script"][st["seg_i"]]
+                if kind == "prims":
+                    tau = now - st["seg_t0"]
+                    times, frames = payload["times"], payload["frames"]
+                    dur = float(times[-1])
+                    last = st["seg_i"] == len(st["script"]) - 1
+                    if tau >= dur + (SETTLE_T if last else 0.0):
+                        if last:
+                            st.update(phase="done", current=None)
+                            print("Done")
+                        else:
+                            st["seg_i"] += 1
+                            st["seg_t0"] = now
+                    else:
+                        idx = min(max(int(np.searchsorted(
+                            times, tau, side="right") - 1), 0),
+                            len(frames) - 1)
+                        st["current"] = payload["motion"][
+                            "sample_steps"][idx]
+                        with viewer.lock():
+                            data.qpos[:] = frames[idx]
+                            data.time = now - st["exec_t0"]
+                            mujoco.mj_forward(model, data)
+                            _step_person(model, data, person)
                 else:
-                    idx = min(max(int(np.searchsorted(
-                        times, tau, side="right") - 1), 0), len(frames) - 1)
-                    st["current"] = st["motion"]["sample_steps"][idx]
+                    lh = payload["lh"]
+                    st["current"] = payload["hid"]
                     with viewer.lock():
-                        data.qpos[:] = frames[idx]
-                        data.time = min(tau, float(times[-1]))
-                        mujoco.mj_forward(model, data)
-                        _step_person(model, data, person)
+                        if lh.data is not data:  # bind once, on segment entry
+                            # Fresh reach origin: F1 during planning may have
+                            # moved the live hand since the snapshot was taken.
+                            lh = payload["lh"] = lh.fresh(data)
+                            hid = model.body(HAND_BODY).id
+                            lh.reach_origin = data.xpos[hid].copy()
+                        _, done = step_handover(lh, wall_dt)
+                        data.time = now - st["exec_t0"]
+                    if done:
+                        with viewer.lock():
+                            hand_now = data.xpos[
+                                model.body("human_hand").id].copy()
+                        if lh.transferred:
+                            person.update(
+                                active=True, t0=now, target=park_pos(model),
+                                face=None, origin=park_pos(model),
+                                carrying={"obj": lh.obj,
+                                          "offset": lh.transfer_offset})
+                        else:
+                            person.update(
+                                active=True, t0=now, target=park_pos(model),
+                                face=None, origin=hand_now)
+                            st.update(phase="error",
+                                      error="hand-over not taken")
+                            print("hand-over not taken")
+                        if st["seg_i"] == len(st["script"]) - 1:
+                            st.update(phase="done", current=None)
+                            print("Done")
+                        else:
+                            st["seg_i"] += 1
+                            st["seg_t0"] = now
             else:
                 with viewer.lock():
                     _step_person(model, data, person)

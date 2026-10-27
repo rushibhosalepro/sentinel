@@ -27,6 +27,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from sim.human import park_pos, reach_to_counter, retreat_to_park
 from sim.ik import DOWN_QUAT, mat_to_quat_wxyz, quat_wxyz_to_mat
@@ -109,11 +110,13 @@ def _frame_at(times: np.ndarray, frames: np.ndarray, t: float) -> np.ndarray:
     return frames[min(max(idx, 0), len(frames) - 1)]
 
 
-def rollout_frames(model, data, plan, derived_from=None, on_sample=None):
+def rollout_frames(model, data, plan, derived_from=None, on_sample=None,
+                   initial_held: str | None = None):
     """Dry-run a plan, capturing robot qpos per Motion sample. (L-00)
 
     Shared by the handover scenarios and the live loop: returns
     (motion, frames, times). `on_sample` sees each dry-run sample too.
+    `initial_held` starts the rollout already holding that body.
     """
     frames = []
 
@@ -123,7 +126,7 @@ def rollout_frames(model, data, plan, derived_from=None, on_sample=None):
             on_sample(m, sim, state, ts)
 
     motion = plan_to_motion(model, data, plan, derived_from,
-                            on_sample=hook)
+                            on_sample=hook, initial_held=initial_held)
     return motion, np.stack(frames), np.array(motion["t"], dtype=float)
 
 
@@ -142,6 +145,27 @@ def _se3(pos: np.ndarray, quat_wxyz: np.ndarray) -> np.ndarray:
     t[:3, :3] = quat_wxyz_to_mat(quat_wxyz)
     t[:3, 3] = pos
     return t
+
+
+def attach_to_hand(model, data, obj_body: str,
+                   hand_body: str = HAND_BODY) -> np.ndarray:
+    """Kinematic attach offset T_hand^-1 @ T_obj (grasp's offset logic)."""
+    hid = model.body(hand_body).id
+    oid = model.body(obj_body).id
+    t_hand = _se3(data.xpos[hid], data.xquat[hid])
+    t_obj = _se3(data.xpos[oid], data.xquat[oid])
+    return np.linalg.inv(t_hand) @ t_obj
+
+
+def drag_with_hand(model, data, obj_body: str, offset: np.ndarray,
+                   hand_body: str = HAND_BODY) -> None:
+    """Pose obj from the hand via a transfer offset; forwards."""
+    hid = model.body(hand_body).id
+    t = _se3(data.xpos[hid], data.xquat[hid]) @ offset
+    adr = free_qposadr(model, obj_body)
+    data.qpos[adr:adr + 3] = t[:3, 3]
+    data.qpos[adr + 3:adr + 7] = mat_to_quat_wxyz(t[:3, :3])
+    mujoco.mj_forward(model, data)
 
 
 def resolve_take(model: mujoco.MjModel, home: mujoco.MjData,
@@ -166,40 +190,79 @@ def resolve_take(model: mujoco.MjModel, home: mujoco.MjData,
     return None
 
 
-def _retract_plan(home_pos, home_quat, hover_pos, hover_quat) -> list[dict]:
+def retract_plan(home_pos, home_quat, hover_pos, hover_quat,
+                 serves: str = "give me the knife",
+                 tag: str = "",
+                 via_pos=None) -> list[dict]:
+    """Lift and return home. (S-07, reused live.)
+
+    Turned + via_pos (live): retrace the approach back to the carry site
+    (the exact reverse of the offer move), flip down there (the reverse of
+    the s4b turn: the one point proven in both orientations), then home.
+    Turned without via (S-07 baked): legacy lift, un-turn at the lift, home.
+    """
     hover_quat = np.asarray(hover_quat, dtype=float)
     lift = np.asarray(hover_pos, dtype=float) + np.array([0, 0, LIFT_CLEAR])
     down = np.asarray(DOWN_QUAT, dtype=float)
     turned = abs(float(np.dot(hover_quat / np.linalg.norm(hover_quat),
                               down / np.linalg.norm(down)))) < 0.99
+    home_pos = np.asarray(home_pos, dtype=float)
+    home_quat = np.asarray(home_quat, dtype=float)
     steps = []
-    if turned:
-        # Un-turn before homing: IK cannot unwind 180° while translating.
+    if turned and via_pos is not None:
+        via = np.asarray(via_pos, dtype=float)
+        # move_to is single-endpoint IK: a 180° flip is one giant seed jump
+        # for the local solver (config drift after the offer excursion makes
+        # it fail). Two 90° hops keep every solve near its seed.
+        half = (Rotation.from_euler("z", 90, degrees=True)
+                * Rotation.from_matrix(quat_wxyz_to_mat(down))).as_matrix()
+        half_quat = mat_to_quat_wxyz(half)
         steps.append(
-            {"id": "r0", "primitive": "move_to",
+            {"id": f"{tag}r0", "primitive": "move_to",
+             "args": {"pose": [*via, *hover_quat]},
+             "serves_instruction": serves,
+             "why": "retrace the offer back to the carry site"})
+        steps.append(
+            {"id": f"{tag}r1h", "primitive": "move_to",
+             "args": {"pose": [*via, *half_quat]},
+             "serves_instruction": serves,
+             "why": "un-turn halfway where the turn happened"})
+        steps.append(
+            {"id": f"{tag}r1", "primitive": "move_to",
+             "args": {"pose": [*via, *down]},
+             "serves_instruction": serves,
+             "why": "finish the un-turn"})
+    elif turned:
+        steps.append(
+            {"id": f"{tag}r0", "primitive": "move_to",
              "args": {"pose": [*lift, *hover_quat]},
-             "serves_instruction": "give me the knife",
+             "serves_instruction": serves,
              "why": "lift clear after the hand takes the knife"})
         steps.append(
-            {"id": "r1", "primitive": "move_to",
+            {"id": f"{tag}r1", "primitive": "move_to",
              "args": {"pose": [*lift, *down]},
-             "serves_instruction": "give me the knife",
+             "serves_instruction": serves,
              "why": "un-turn to the carry orientation"})
     else:
         steps.append(
-            {"id": "r1", "primitive": "move_to",
+            {"id": f"{tag}r1", "primitive": "move_to",
              "args": {"pose": [*lift, *hover_quat]},
-             "serves_instruction": "give me the knife",
+             "serves_instruction": serves,
              "why": "lift clear after the hand takes the knife"})
+        steps.append(
+            {"id": f"{tag}r2", "primitive": "move_to",
+             "args": {"pose": [*home_pos, *home_quat]},
+             "serves_instruction": serves,
+             "why": "retract to home"})
+    if turned:
+        steps.append(
+            {"id": f"{tag}r2", "primitive": "move_to",
+             "args": {"pose": [*home_pos, *home_quat]},
+             "serves_instruction": serves,
+             "why": "retract to home"})
     steps.append(
-        {"id": "r2", "primitive": "move_to",
-         "args": {"pose": [*np.asarray(home_pos, dtype=float),
-                            *np.asarray(home_quat, dtype=float)]},
-         "serves_instruction": "give me the knife",
-         "why": "retract to home"})
-    steps.append(
-        {"id": "r3", "primitive": "stop", "args": {},
-         "serves_instruction": "give me the knife",
+        {"id": f"{tag}r3", "primitive": "stop", "args": {},
+         "serves_instruction": serves,
          "why": "rest at home"})
     return steps
 
@@ -243,7 +306,7 @@ def build_handover(scenario: str) -> Handover:
     mujoco.mj_copyData(start, model, data)
     start.qpos[:] = frames_a[-1]  # knife rests at the offer, robot released
     retract, rframes, times_r = rollout_frames(
-        model, start, _retract_plan(
+        model, start, retract_plan(
             home_pos, home_quat, hover_pos, hover_quat),
         f"play:{scenario}:retract")
 
@@ -273,24 +336,15 @@ def _drive_reach(hb: Handover, tau: float) -> None:
 
 def _transfer(hb: Handover, tau: float) -> None:
     """Kinematic attach: knife follows the hand (grasp's offset logic)."""
-    hand_id = hb.model.body(HAND_BODY).id
-    knife_id = hb.model.body(KNIFE_BODY).id
-    t_hand = _se3(hb.data.xpos[hand_id], hb.data.xquat[hand_id])
-    t_knife = _se3(hb.data.xpos[knife_id], hb.data.xquat[knife_id])
-    hb.transfer_offset = np.linalg.inv(t_hand) @ t_knife
-    hb.retreat_origin = hb.data.xpos[hand_id].copy()
+    hb.transfer_offset = attach_to_hand(hb.model, hb.data, KNIFE_BODY)
+    hb.retreat_origin = hb.data.xpos[
+        hb.model.body(HAND_BODY).id].copy()
     hb.transferred = True
     print(f"hand-over taken at t={tau:.2f} s")
 
 
 def _drag_knife(hb: Handover) -> None:
-    hand_id = hb.model.body(HAND_BODY).id
-    t_hand = _se3(hb.data.xpos[hand_id], hb.data.xquat[hand_id])
-    t = t_hand @ hb.transfer_offset
-    adr = free_qposadr(hb.model, KNIFE_BODY)
-    hb.data.qpos[adr:adr + 3] = t[:3, 3]
-    hb.data.qpos[adr + 3:adr + 7] = mat_to_quat_wxyz(t[:3, :3])
-    mujoco.mj_forward(hb.model, hb.data)
+    drag_with_hand(hb.model, hb.data, KNIFE_BODY, hb.transfer_offset)
 
 
 def apply_at(hb: Handover, tau: float) -> str:

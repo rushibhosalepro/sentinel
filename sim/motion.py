@@ -39,6 +39,7 @@ from sim.primitives import (
     Clock,
     PrimitiveError,
     PrimState,
+    capture_hold,
 )
 from sim.world import OUT_DIR, load_scene, render
 
@@ -134,16 +135,22 @@ def _end_state(model, data, moved: list[str]) -> list[dict]:
     return out
 
 
-def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
+def plan_to_motion(model, data, plan, derived_from=None, on_sample=None,
+                   initial_held: str | None = None):
     """Execute plan steps on a COPY of data; return the §4 Motion dict.
 
     `on_sample(model, sim_data, prim_state, t)` is an optional extra hook
     invoked after each contract sample (used by demos for extra tracks).
+    `initial_held` starts the rollout already holding that body (the offset
+    is captured from the starting poses); for plan segments that continue
+    a carry across a segment boundary (live hand_to).
     Raises PrimitiveError on unknown primitives, bad args, or IK failures.
     """
     sim = mujoco.MjData(model)
     mujoco.mj_copyData(sim, model, data)
     state, clock = PrimState(), Clock()
+    if initial_held is not None:
+        capture_hold(model, sim, state, initial_held)
     initial = {b: sim.body(b).xpos.copy() for b in free_bodies(model)}
 
     path, t, held, tilt, speed, step_ids = [], [], [], [], [], []

@@ -16,16 +16,19 @@ import argparse
 import json
 import math
 import os
+import time
 
 from openai import OpenAI
 
 from perception.sam import load_settings
 
 DEFAULT_MODEL = "muse-spark-1.3"
+DEFAULT_EFFORT = "minimal"  # fastest valid setting (out/planner_latency.md)
 MAX_STEPS = 20
 
-# The 6 PLAN §4 primitives (hardcoded so this module stays sim-free).
-PRIMITIVES = ("move_to", "grasp", "release", "tilt", "set_speed", "stop")
+# PLAN §4 primitives + the hand_to skill (hardcoded: this module stays sim-free).
+PRIMITIVES = ("move_to", "grasp", "release", "tilt", "set_speed", "stop",
+              "hand_to")
 SPEEDS = ("slow", "normal")
 
 PLAN_SCHEMA = {
@@ -65,6 +68,11 @@ Primitives (the ONLY allowed actions):
 - tilt {"deg": number}: pour angle in degrees from straight-down.
 - set_speed {"speed": "slow" | "normal"}: speed for subsequent moves; use slow near people or fragile, hot, or liquid-carrying objects.
 - stop {}: end the plan (no steps after this run).
+- hand_to {"person": id}: give the held object to a present person (the loop expands the offer, wait, transfer, and retract; NOT a sim primitive).
+
+People: the scene facts list people. "owner" is the present user (the "me" / "you" in instructions); anyone not marked present is absent. You never move people directly.
+
+Giving: To give something to a person, grasp it then use hand_to; never invent hand-over coordinates; always end with the robot not holding anything unless told otherwise.
 
 Rules:
 - Use ONLY object ids listed in the scene facts. Never invent ids.
@@ -75,8 +83,8 @@ Rules:
 - Keep plans short (at most 12 steps). Each step needs a unique string id, serves_instruction (which part of the instruction it serves), and why (one line)."""
 
 
-def scene_facts(model, data, props: dict) -> dict:
-    """Ground-truth facts for the planner (ids, labels, positions, ...)."""
+def scene_facts(model, data, props: dict, reaching: bool = False) -> dict:
+    """Ground-truth facts for the planner (objects + people, no image)."""
     objects = []
     for name, spec in props["objects"].items():
         pos = data.xpos[model.body(name).id]
@@ -87,7 +95,21 @@ def scene_facts(model, data, props: dict) -> dict:
             "properties": list(spec["properties"]),
             "owner": spec["owner"],
         })
-    return {"objects": objects}
+    people = []
+    for pid in props["people"]:
+        if pid == "owner":  # the visible body belongs to the owner
+            hand = data.xpos[model.body("human_hand").id]
+            torso = data.xpos[model.body("human_torso").id]
+            people.append({
+                "id": pid, "present": True,
+                "hand_pos": [round(float(v), 3) for v in hand],
+                "torso_pos": [round(float(v), 3) for v in torso],
+                "reaching": bool(reaching),
+            })
+        else:
+            people.append({"id": pid, "present": False, "hand_pos": None,
+                           "torso_pos": None, "reaching": False})
+    return {"objects": objects, "people": people}
 
 
 def build_user_message(instruction: str, facts: dict) -> str:
@@ -96,12 +118,18 @@ def build_user_message(instruction: str, facts: dict) -> str:
 
 
 def plan_instruction(instruction: str, facts: dict,
-                     model: str | None = None) -> str:
+                     model: str | None = None,
+                     effort: str | None = None) -> str:
     """Call the planner model; returns the raw JSON content string."""
     base_url, api_key = load_settings()
     model = model or os.environ.get("PLANNER_MODEL", DEFAULT_MODEL)
+    eff = DEFAULT_EFFORT if effort is None else effort
     client = OpenAI(base_url=base_url, api_key=api_key,
                     timeout=120.0, max_retries=2)
+    kwargs = {}
+    if eff is not None:
+        kwargs["reasoning_effort"] = eff
+    t0 = time.perf_counter()
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -113,7 +141,10 @@ def plan_instruction(instruction: str, facts: dict,
             "type": "json_schema",
             "json_schema": {"name": "Plan", "schema": PLAN_SCHEMA},
         },
+        **kwargs,
     )
+    print(f"plan took {time.perf_counter() - t0:.1f} s "
+          f"(model={model}, effort={eff})")
     return resp.choices[0].message.content
 
 
@@ -133,8 +164,11 @@ def _is_num(v) -> bool:
         and math.isfinite(float(v))
 
 
-def validate_steps(steps: list, valid_ids: set[str]):
+def validate_steps(steps: list, valid_ids: set[str],
+                   valid_people: set[str] | None = None):
     """Reject anything out of schema; returns (steps, None) or (None, why)."""
+    if valid_people is None:  # props.yaml people (test-pinned there)
+        valid_people = {"owner", "visitor"}
     if not isinstance(steps, list) or not steps:
         return None, "plan must be a non-empty list of steps"
     if len(steps) > MAX_STEPS:
@@ -178,21 +212,28 @@ def validate_steps(steps: list, valid_ids: set[str]):
             if args.get("speed") not in SPEEDS:
                 return None, (f"step {sid}: speed must be one of "
                               f"{list(SPEEDS)}")
+        elif prim == "hand_to":
+            who = args.get("person")
+            if who not in valid_people:
+                return None, f"step {sid}: unknown person {who!r}"
     return steps, None
 
 
-def plan_from_content(content: str, valid_ids: set[str]):
+def plan_from_content(content: str, valid_ids: set[str],
+                      valid_people: set[str] | None = None):
     """Parse + validate raw LLM content; (steps, None) or (None, why)."""
     steps, err = parse_plan_content(content)
     if err is not None:
         return None, err
-    return validate_steps(steps, valid_ids)
+    return validate_steps(steps, valid_ids, valid_people)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Plan one instruction with Muse Spark (live API call).")
     parser.add_argument("instruction")
+    parser.add_argument("--reasoning-effort", default=None,
+                        choices=["minimal", "low", "medium"])
     args = parser.parse_args()
     from graph.scene_graph import load_props  # lazy: keep this module light
     from sim.world import load_scene
@@ -201,7 +242,8 @@ def main() -> None:
     props = load_props()
     facts = scene_facts(model, data, props)
     try:
-        content = plan_instruction(args.instruction, facts)
+        content = plan_instruction(args.instruction, facts,
+                                   effort=args.reasoning_effort)
     except Exception as e:
         print(f"planner error: {e}")
         raise SystemExit(1)
@@ -212,16 +254,18 @@ def main() -> None:
     for s in steps:
         print(f"  {s['id']} {s['primitive']} {json.dumps(s['args'])}"
               f"  # {s['why']}")
-    from sim.play import rollout_frames  # lazy: keep this module light
-    from sim.primitives import PrimitiveError
-    try:
-        motion, _, _ = rollout_frames(
-            model, data, steps, derived_from="planner:cli")
-    except PrimitiveError as e:
-        print(f"cannot build Motion: {e}")
+    from loop.handover import build_execution_script  # lazy: light module
+    hand_id = model.body("hand").id
+    script, err = build_execution_script(
+        model, data, steps, data.xpos[hand_id].copy(),
+        data.xquat[hand_id].copy(), args.instruction)
+    if err is not None:
+        print(f"{err} (not moving)")
         raise SystemExit(1)
+    motion = script["motion"]
     print(f"Motion: {len(motion['t'])} samples over "
-          f"{motion['t'][-1]:.2f} s, held={motion['held'][-1]}")
+          f"{motion['t'][-1]:.2f} s, held={motion['held'][-1]} "
+          f"({len(script['segments'])} segments)")
 
 
 if __name__ == "__main__":
