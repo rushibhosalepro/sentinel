@@ -9,7 +9,7 @@ All paths below are relative to `sentinel/` unless stated.
 |------|-------|--------|-------|
 | P0-01 | done | P0-01 commit | uv init (requires-python >=3.14), MIT LICENSE, 12 pkgs + data dirs, README stub, .venv @ 3.14.9 |
 | P0-02 | done | P0-02 commit | mujoco 3.17.0, mink 1.3.0, numpy 2.5.4, openai 3.39.0, meta-sam-parser 0.1.0; all imports verified |
-| P0-03 | todo | | scripts/fetch_assets.py |
+| P0-03 | done | P0-03 commit | sparse-fetch franka_emika_panda (80 files, Apache-2.0); mug/knife/table are procedural primitives; panda.xml loads (12 bodies, 9 joints) |
 | P0-04 | todo | | sim/world.py + sim/scenes/day1.xml |
 | P0-05 | todo | | mink IK above mug |
 | P0-06 | todo | | perception/sam.py, SAM go/no-go |

@@ -34,7 +34,11 @@ orchestrator · `learner/` rule learner · `bench/` benchmark · `server/` API �
 Third-party MuJoCo assets live in `sim/assets/` (git-ignored, fetched by
 `scripts/fetch_assets.py`); their licences are listed there as they are added:
 
-- *(none yet — added in P0-03)*
+- `franka_emika_panda` (Panda arm + hand meshes, `panda.xml`) from
+  [google-deepmind/mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie),
+  Apache-2.0 (see `sim/assets/mujoco_menagerie/LICENSE` after fetching).
+- Table, mug, knife in `sim/scenes/day1.xml` are procedural MuJoCo
+  primitives (boxes/cylinders) authored for this repo — no third-party licence.
 
 ## License
 
