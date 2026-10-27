@@ -223,6 +223,16 @@ def init_perception_graph(model, data, props: dict | None = None,
     g.add_node(bodypart_id(GRIPPER_BODY), type=NODE_BODYPART, kind="gripper",
                pos=data.xpos[gid].tolist(), velocity=[0.0, 0.0, 0.0],
                bbox3d=[*glo.tolist(), *ghi.tolist()], last_seen=ts)
+    # G-05: the safety-critical hand node is pre-created at its parked pose
+    # (stale until first observed) so hand-vs-object edges always resolve.
+    hid = model.body(HUMAN_BODY).id
+    hlo, hhi = body_aabb(model, data, hid)
+    g.add_node(bodypart_id(HUMAN_BODY), type=NODE_BODYPART, kind="hand",
+               pos=data.xpos[hid].tolist(), velocity=[0.0, 0.0, 0.0],
+               bbox3d=[*hlo.tolist(), *hhi.tolist()],
+               person_predicted=[], stale=True, last_seen=None)
+    g.add_edge(person_id("owner"), bodypart_id(HUMAN_BODY),
+               type=EDGE_HAS, ts=ts)
     return g
 
 
@@ -306,6 +316,26 @@ def update_from_detections(g: nx.MultiDiGraph, detections,
     n_rel = recompute_relations(g, ts)  # same code path as GT (G-04)
     return {"assigned": assigned, "dropped": dropped, "stale": stale,
             "relations": n_rel}
+
+
+def update_hand_track(g: nx.MultiDiGraph, track, ts: float, pos) -> dict:
+    """Fuse one hand observation into bp:human_hand. (G-05)
+
+    Translates the last-known box by the position delta (the hand's shape
+    is rigid), stores velocity + person_predicted from the track, and
+    refreshes relations so hand-vs-object edges stay current.
+    """
+    est = track.update(ts, pos)
+    node = g.nodes[bodypart_id(HUMAN_BODY)]
+    delta = np.asarray(est["pos"]) - np.asarray(node["pos"])
+    lo = np.asarray(node["bbox3d"][:3]) + delta
+    hi = np.asarray(node["bbox3d"][3:]) + delta
+    node.update(pos=est["pos"], velocity=est["velocity"],
+                person_predicted=est["predicted"],
+                bbox3d=[*lo.tolist(), *hi.tolist()],
+                stale=False, last_seen=ts)
+    recompute_relations(g, ts)
+    return est
 
 
 def print_graph(g: nx.MultiDiGraph) -> None:

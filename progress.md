@@ -23,6 +23,7 @@ All paths below are relative to `sentinel/` unless stated.
 | G-02 | done | G-02 commit | sweep.py 12-label SAM sweep + sheet; 5 clean hits, 2 wording fixes (knife, white plate), 4 hard misses; 19 calls cached |
 | G-03 | done | G-03 commit | lift3d (camera+lift, v-sign fixed by tests) + tracker (assoc+permanence); 8/11 tracked, cup misassign noted; 26 passed |
 | G-04 | done | G-04 commit | recompute_relations shared GT/SAM path (GT refactored onto it, gripper bbox3d init fix) + detections_from_cache + side-by-side demo (GT 71 rels, SAM 44 rels); 29 passed |
+| G-05 | done | G-05 commit | HandTrack (windowed velocity fit + linear horizons 0.25-1.0s) + update_hand_track (rigid-box translate, person_predicted, relation refresh); reach demo: settled v=0, +1s err 32.5cm overshoot (conservative), live NEAR hand-knife 28.3cm; 34 passed |
 
 ## Log
 
