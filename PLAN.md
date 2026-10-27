@@ -191,7 +191,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 ### Phase 2: Perception → scene graph (Oct 29)
 - [x] **G-01** Ground-truth scene graph from simulator state (positions, relations)
 - [x] **G-02** SAM 3.1 pipeline: label prompts, confidence, cache by (scene, frame, label)
-- [ ] **G-03** Lift to 3D with depth + intrinsics; associate SAM ids ↔ nodes; object permanence
+- [x] **G-03** Lift to 3D with depth + intrinsics; associate SAM ids ↔ nodes; object permanence
 - [ ] **G-04** Relations: ON / NEAR{dist} / ABOVE / INSIDE / HOLDS with timestamps
 - [ ] **G-05** Person velocity + short prediction (`person_predicted`)
 - [ ] **G-06** Perception accuracy vs ground truth (IoU, misses) → number for README

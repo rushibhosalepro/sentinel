@@ -21,6 +21,7 @@ All paths below are relative to `sentinel/` unless stated.
 | S-05 | done | S-05 commit | human.py reach/retreat mocap scripts (eased, no teleports); reach strip verified; 14 passed |
 | G-01 | done | G-01 commit | schema.py + scene_graph.py GT builder (MultiDiGraph, AABB relations, ts everywhere); geometry.py shared w/ motion; 19 passed |
 | G-02 | done | G-02 commit | sweep.py 12-label SAM sweep + sheet; 5 clean hits, 2 wording fixes (knife, white plate), 4 hard misses; 19 calls cached |
+| G-03 | done | G-03 commit | lift3d (camera+lift, v-sign fixed by tests) + tracker (assoc+permanence); 8/11 tracked, cup misassign noted; 26 passed |
 
 ## Log
 

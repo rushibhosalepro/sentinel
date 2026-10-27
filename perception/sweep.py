@@ -77,14 +77,19 @@ def main() -> None:
         parser.print_help()
         return
     props = load_props()
-    prompts = [spec["label"] for spec in props["objects"].values()] + ["hand"]
+    prompts: list[str] = []
+    for spec in props["objects"].values():
+        for p in spec.get("prompts", [spec["label"]]):
+            if p not in prompts:
+                prompts.append(p)
+    prompts.append("hand")
     print(f"sweeping {len(prompts)} prompts on {args.image}:")
     results = sweep(REPO_ROOT / args.image, prompts, refresh=args.refresh)
     for i, (prompt, summary) in enumerate(results.items()):
         summary["overlay"].save(OUT_DIR / f"sam_kitchen_{i:02d}_{slug(prompt)}.png")
     sheet_path = OUT_DIR / "sam_kitchen_sheet.png"
     contact_sheet(results).save(sheet_path)
-    print(f"saved 12 overlays + {sheet_path}")
+    print(f"saved {len(results)} overlays + {sheet_path}")
 
 
 if __name__ == "__main__":

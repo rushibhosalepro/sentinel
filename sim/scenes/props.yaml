@@ -1,52 +1,66 @@
-# Semantic layer for kitchen.xml (S-02).
+# Semantic layer for kitchen.xml (S-02, prompts G-03).
 # objects: keys MUST match the free-joint body names in kitchen.xml exactly
 #   (enforced by tests/test_props.py).
 # properties vocabulary: sharp, hot, liquid, fragile, electronic, medication,
 #   food. (Nothing in this scene is hot yet; the slot exists for the kettle.)
+# prompts: SAM text prompts that ground this object, primary first. Found by
+#   the G-02 sweep: compounds ("chef's knife") miss where simple nouns hit,
+#   and the jug only grounds via "cup" (plain cylinder reads as a vessel).
 
 objects:
   chef_knife:
     label: "chef's knife"
+    prompts: [knife]
     properties: [sharp]
     owner: owner
   jug:
     label: "water jug"
+    prompts: [cup]
     properties: [liquid]
     owner: owner
   cup:
     label: "cup"
+    prompts: [cup]
     properties: []
     owner: owner
   laptop:
     label: "laptop"
+    prompts: [laptop]
     properties: [electronic]
     owner: owner
   pill_bottle:
     label: "pill bottle"
+    prompts: ["pill bottle"]
     properties: [medication]
     owner: owner
   wine_glass:
     label: "wine glass"
+    prompts: ["wine glass"]
     properties: [fragile]
     owner: owner
   plate:
     label: "plate"
+    prompts: ["white plate"]
     properties: []
     owner: owner
   apple:
     label: "apple"
+    prompts: [apple]
     properties: [food]
     owner: owner
   sponge:
     label: "sponge"
+    prompts: [sponge]
     properties: []
     owner: owner
   phone:
     label: "phone"
+    prompts: [phone]
     properties: [electronic]
     owner: visitor
   sticky_note:
     label: "sticky note"
+    prompts: ["sticky note"]
     properties: []
     owner: owner
 

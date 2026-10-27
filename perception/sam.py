@@ -220,6 +220,23 @@ def confidences(result: ImageSegmentationResult) -> list[float]:
             if r.kind == "box" and r.confidence is not None]
 
 
+def record_mask_full(record, height: int, width: int) -> np.ndarray:
+    """Decode a mask record to a full-frame boolean array."""
+    raster = np.frombuffer(
+        decode_mask_to_raster(record.mask), dtype=np.uint8
+    ).reshape(record.mask.height, record.mask.width)
+    b = record.bounds
+    x0, y0 = max(0, int(b.left)), max(0, int(b.top))
+    x1, y1 = min(width, int(b.right)), min(height, int(b.bottom))
+    if (y1 - y0, x1 - x0) != raster.shape:
+        m = Image.fromarray((raster * 255).astype(np.uint8))
+        raster = (np.asarray(m.resize((x1 - x0, y1 - y0),
+                                      Image.NEAREST)) > 0).astype(np.uint8)
+    full = np.zeros((height, width), dtype=bool)
+    full[y0:y1, x0:x1] |= raster[: y1 - y0, : x1 - x0].astype(bool)
+    return full
+
+
 def draw_overlay(rgb: np.ndarray, result: ImageSegmentationResult) -> Image.Image:
     """Draw filled masks + boxes + labels on the RGB frame."""
     h, w, _ = rgb.shape
@@ -231,22 +248,12 @@ def draw_overlay(rgb: np.ndarray, result: ImageSegmentationResult) -> Image.Imag
     for record in result.records:
         c = color[record.object_id]
         if record.kind == "mask":
-            raster = np.frombuffer(
-                decode_mask_to_raster(record.mask), dtype=np.uint8
-            ).reshape(record.mask.height, record.mask.width)
-            b = record.bounds
-            x0, y0 = max(0, int(b.left)), max(0, int(b.top))
-            x1, y1 = min(w, int(b.right)), min(h, int(b.bottom))
-            if (y1 - y0, x1 - x0) != raster.shape:
-                m = Image.fromarray((raster * 255).astype(np.uint8))
-                raster = (np.asarray(m.resize((x1 - x0, y1 - y0),
-                                              Image.NEAREST)) > 0).astype(np.uint8)
-            ys, xs = np.nonzero(raster[: y1 - y0, : x1 - x0])
+            ys, xs = np.nonzero(record_mask_full(record, h, w))
             if len(xs):
                 fill = Image.new("RGBA", (w, h), (0, 0, 0, 0))
                 px = fill.load()
                 for x, y in zip(xs.tolist(), ys.tolist()):
-                    px[x0 + x, y0 + y] = c + (110,)
+                    px[x, y] = c + (110,)
                 layer = Image.alpha_composite(layer, fill)
                 draw = ImageDraw.Draw(layer)
     img = Image.alpha_composite(img, layer)
