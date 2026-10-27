@@ -24,7 +24,8 @@ from sim.world import OUT_DIR, load_scene, render
 HAND_BODY = "hand"
 MUG_BODY = "mug"
 GRASP_OFFSET = 0.10  # grasp point above the hand origin along hand +z (m)
-TARGET_HEIGHT = 0.10  # grasp point above the mug body origin (m)
+MUG_RIM_Z = 0.096  # mug rim height above the table (coffee surface, day1.xml)
+TARGET_HEIGHT = 0.10  # grasp point above the mug rim (m)
 
 SOLVER = "daqp"
 DT = 0.05
@@ -48,7 +49,7 @@ def solve_above_mug(
     q0: np.ndarray | None = None,
     height: float = TARGET_HEIGHT,
 ) -> tuple[np.ndarray, dict]:
-    """Solve IK so the grasp point sits `height` above the mug, gripper down.
+    """Solve IK so the grasp point sits `height` above the mug rim, gripper down.
 
     Returns (q_solution, info). Raises mink.NoSolutionFound if a QP fails.
     """
@@ -57,7 +58,9 @@ def solve_above_mug(
     data = mujoco.MjData(model)
     data.qpos[:] = q0
     mujoco.mj_forward(model, data)
-    grasp_target = data.body(MUG_BODY).xpos + np.array([0.0, 0.0, height])
+    grasp_target = data.body(MUG_BODY).xpos + np.array(
+        [0.0, 0.0, MUG_RIM_Z + height]
+    )
 
     # Gripper-down hand orientation: hand +z (fingertip axis) -> world -z.
     # With this orientation, grasp = hand_pos - (0,0,GRASP_OFFSET).
