@@ -23,6 +23,15 @@ import mujoco
 import numpy as np
 from PIL import Image
 
+from sim.geometry import (
+    ABOVE_MIN_M,
+    NEAR_GAP_M,
+    ON_BAND_M,
+    aabb_gap,
+    aabbs_xy_overlap,
+    body_aabb,
+    free_bodies,
+)
 from sim.ik import GRASP_OFFSET
 from sim.primitives import (
     PRIMITIVES,
@@ -67,8 +76,6 @@ KNIFE_HANDOVER_PLAN = [
 DEMOS = {"knife_handover": KNIFE_HANDOVER_PLAN}
 
 MOVED_EPS = 1e-3  # (m) displacement that counts as "moved"
-NEAR_GAP = 0.10  # (m) surface gap that counts as "near"
-ON_BAND = 0.015  # (m) vertical tolerance for "on"
 
 
 def _grasp_pose(model: mujoco.MjModel, data: mujoco.MjData) -> list[float]:
@@ -78,80 +85,13 @@ def _grasp_pose(model: mujoco.MjModel, data: mujoco.MjData) -> list[float]:
     return [float(v) for v in gp] + [float(v) for v in data.xquat[hand_id]]
 
 
-def _geom_world_aabb(model: mujoco.MjModel, data: mujoco.MjData,
-                     geom_id: int):
-    """World-frame (lo, hi) box for a geom (None for unbounded types)."""
-    typ = model.geom_type[geom_id]
-    size = model.geom_size[geom_id]
-    rot = data.geom_xmat[geom_id].reshape(3, 3)
-    center = data.geom_xpos[geom_id]
-    if typ == mujoco.mjtGeom.mjGEOM_MESH:
-        mid = model.geom_dataid[geom_id]
-        v0, n = model.mesh_vertadr[mid], model.mesh_vertnum[mid]
-        verts = model.mesh_vert[v0:v0 + n] * size
-        lo_l, hi_l = verts.min(axis=0), verts.max(axis=0)
-        corners = np.stack(
-            np.meshgrid(*zip(lo_l, hi_l))).reshape(3, -1).T
-        world = corners @ rot.T + center
-        return world.min(axis=0), world.max(axis=0)
-    if typ == mujoco.mjtGeom.mjGEOM_BOX:
-        half = size.copy()
-    elif typ == mujoco.mjtGeom.mjGEOM_SPHERE:
-        half = np.array([size[0]] * 3)
-    elif typ == mujoco.mjtGeom.mjGEOM_CAPSULE:
-        half = np.array([size[0], size[0], size[0] + size[1]])
-    elif typ == mujoco.mjtGeom.mjGEOM_ELLIPSOID:
-        half = size.copy()
-    elif typ == mujoco.mjtGeom.mjGEOM_CYLINDER:
-        half = np.array([size[0], size[0], size[1]])
-    else:
-        return None  # planes, hfields: unbounded, skipped
-    extent = np.abs(rot) @ half
-    return center - extent, center + extent
-
-
-def _body_aabb(model: mujoco.MjModel, data: mujoco.MjData,
-               body_id: int) -> tuple[np.ndarray, np.ndarray]:
-    lo = np.full(3, np.inf)
-    hi = np.full(3, -np.inf)
-    for g in range(model.ngeom):
-        if model.geom_bodyid[g] != body_id:
-            continue
-        box = _geom_world_aabb(model, data, g)
-        if box is None:
-            continue
-        lo = np.minimum(lo, box[0])
-        hi = np.maximum(hi, box[1])
-    return lo, hi
-
-
-def _aabb_gap(lo1, hi1, lo2, hi2) -> float:
-    sep = np.maximum(np.maximum(lo2 - hi1, lo1 - hi2), 0.0)
-    return float(np.linalg.norm(sep))
-
-
-def _free_bodies(model: mujoco.MjModel) -> list[str]:
-    names = []
-    for body_id in range(model.nbody):
-        jadr = model.body_jntadr[body_id]
-        if jadr >= 0 and model.jnt_type[jadr] == mujoco.mjtJoint.mjJNT_FREE:
-            names.append(mujoco.mj_id2name(
-                model, mujoco.mjtObj.mjOBJ_BODY, body_id))
-    return names
-
-
-def _xy_overlap(lo1, hi1, lo2, hi2) -> bool:
-    return bool(lo1[0] <= hi2[0] and lo2[0] <= hi1[0]
-                and lo1[1] <= hi2[1] and lo2[1] <= hi1[1])
-
-
 def _end_state(model, data, moved: list[str]) -> list[dict]:
-    others = _free_bodies(model) + ["counter"]
+    others = free_bodies(model) + ["counter"]
     out = []
     for a in sorted(moved):
-        lo_a, hi_a = _body_aabb(model, data, model.body(a).id)
+        lo_a, hi_a = body_aabb(model, data, model.body(a).id)
         for b in sorted(set(others) - {a}):
-            lo_b, hi_b = _body_aabb(model, data, model.body(b).id)
+            lo_b, hi_b = body_aabb(model, data, model.body(b).id)
             if np.isinf(lo_a).any() or np.isinf(lo_b).any():
                 continue  # unbounded geometry; no relations
             if bool((lo_a >= lo_b).all() and (hi_a <= hi_b).all()):
@@ -160,14 +100,16 @@ def _end_state(model, data, moved: list[str]) -> list[dict]:
                 out.append({"rel": "inside", "a": a, "b": b,
                             "dist_cm": round(max(0.0, clear) * 100, 2)})
             vgap = float(lo_a[2] - hi_b[2])
-            if abs(vgap) <= ON_BAND and _xy_overlap(lo_a, hi_a, lo_b, hi_b):
+            if abs(vgap) <= ON_BAND_M and aabbs_xy_overlap(
+                    lo_a, hi_a, lo_b, hi_b):
                 out.append({"rel": "on", "a": a, "b": b,
                             "dist_cm": round(max(0.0, vgap) * 100, 2)})
-            elif vgap > 0.005 and _xy_overlap(lo_a, hi_a, lo_b, hi_b):
+            elif vgap > ABOVE_MIN_M and aabbs_xy_overlap(
+                    lo_a, hi_a, lo_b, hi_b):
                 out.append({"rel": "above", "a": a, "b": b,
                             "dist_cm": round(vgap * 100, 2)})
-            gap = _aabb_gap(lo_a, hi_a, lo_b, hi_b)
-            if gap < NEAR_GAP:
+            gap = aabb_gap(lo_a, hi_a, lo_b, hi_b)
+            if gap < NEAR_GAP_M:
                 out.append({"rel": "near", "a": a, "b": b,
                             "dist_cm": round(gap * 100, 2)})
     return out
@@ -183,7 +125,7 @@ def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
     sim = mujoco.MjData(model)
     mujoco.mj_copyData(sim, model, data)
     state, clock = PrimState(), Clock()
-    initial = {b: sim.body(b).xpos.copy() for b in _free_bodies(model)}
+    initial = {b: sim.body(b).xpos.copy() for b in free_bodies(model)}
 
     path, t, held, tilt, speed, step_ids = [], [], [], [], [], []
 

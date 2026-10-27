@@ -19,6 +19,7 @@ All paths below are relative to `sentinel/` unless stated.
 | S-03 | done | S-03 commit | primitives.py (6 actions, kinematic rollout, honest failures); ik.py gains solve_pose; 7 passed |
 | S-04 | done | S-04 commit | motion.py plan→Motion on sim copy (AABB end_state); knife_handover demo + strip; 11 passed |
 | S-05 | done | S-05 commit | human.py reach/retreat mocap scripts (eased, no teleports); reach strip verified; 14 passed |
+| G-01 | done | G-01 commit | schema.py + scene_graph.py GT builder (MultiDiGraph, AABB relations, ts everywhere); geometry.py shared w/ motion; 19 passed |
 
 ## Log
 
