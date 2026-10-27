@@ -181,7 +181,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** `python -m sim.world --demo` saves a frame and an overlay with SAM's mask.
 
 ### Phase 1: Simulation, primitives, Motion (Oct 28)
-- [ ] **S-01** Kitchen scene: counter, ~15 objects (knife, kettle/jug, cup, laptop, pill bottle, wine glass, ...), human hand (mocap), sticky note texture, cameras
+- [x] **S-01** Kitchen scene: counter, ~15 objects (knife, kettle/jug, cup, laptop, pill bottle, wine glass, ...), human hand (mocap), sticky note texture, cameras
 - [ ] **S-02** `props.yaml` semantic layer (properties, owners, people/roles)
 - [ ] **S-03** Primitives with grasp-by-attach, tilt, speed
 - [ ] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
