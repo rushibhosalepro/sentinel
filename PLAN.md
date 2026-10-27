@@ -185,7 +185,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **S-02** `props.yaml` semantic layer (properties, owners, people/roles)
 - [x] **S-03** Primitives with grasp-by-attach, tilt, speed
 - [x] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
-- [ ] **S-05** Scripted human-hand paths (reach in at time *t*)
+- [x] **S-05** Scripted human-hand paths (reach in at time *t*)
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
 ### Phase 2: Perception → scene graph (Oct 29)
