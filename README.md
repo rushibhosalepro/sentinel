@@ -10,7 +10,7 @@ learner that keeps improving the rulebook safely.
 
 Built from scratch during the **Meta Global AI Developer Hackathon
 (Oct 27 – Nov 4, 2026)** — Indie track, *Push the Frontier* theme.
-See [`PLAN.md`](../PLAN.md) (single source of truth) for the full build plan.
+See [`PLAN.md`](PLAN.md) (single source of truth) for the full build plan.
 
 ## Quickstart (Phase 0)
 
