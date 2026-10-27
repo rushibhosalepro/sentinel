@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.1** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.3** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -181,11 +181,12 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** `python -m sim.world --demo` saves a frame and an overlay with SAM's mask.
 
 ### Phase 1: Simulation, primitives, Motion (Oct 28)
-- [x] **S-01** Kitchen scene: counter, ~15 objects (knife, kettle/jug, cup, laptop, pill bottle, wine glass, ...), human hand (mocap), sticky note texture, cameras
+- [x] **S-01** Kitchen scene: counter, ~15 objects (knife, kettle/jug, cup, laptop, pill bottle, wine glass, ...), full mocap person, sticky note texture, front (perception) + demo (wide) cameras
 - [x] **S-02** `props.yaml` semantic layer (properties, owners, people/roles)
 - [x] **S-03** Primitives with grasp-by-attach, tilt, speed
 - [x] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
-- [x] **S-05** Scripted human-hand paths (reach in at time *t*)
+- [x] **S-05** Scripted human paths: full person leans + reaches in at time *t* (2-bone-IK arm, hand yawed onto forearm)
+- [x] **S-06** `sim/play.py`: play a scenario live in the viewer (Motion + scripted hand, pause/restart/quit, loop, `--speed`, `--record` mp4) + headless attach test
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
 ### Phase 2: Perception → scene graph (Oct 29)
@@ -369,6 +370,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 |---|---|---|
 | v1.0 | Oct 27 | First full plan |
 | v1.1 | Oct 27 | Add P0-07 (Phase 0 pytest suite) |
+| v1.2 | Oct 27 | Add S-06 (scenario playback `sim/play.py` + headless attach test) |
+| v1.3 | Oct 27 | S-05: full procedural person (lean, IK arm, hand orientation); split front/demo cameras |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
