@@ -172,7 +172,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 
 ### Phase 0: Setup and day-1 check (Oct 27)
 - [x] **P0-01** Create public repo `sentinel`, MIT licence, `uv init`, `.env.example`, copy this PLAN.md
-- [ ] **P0-02** Install `mujoco mink daqp numpy pillow imageio[ffmpeg] fastapi uvicorn openai meta-sam-parser pyyaml networkx`
+- [x] **P0-02** Install `mujoco mink daqp numpy pillow imageio[ffmpeg] fastapi uvicorn openai meta-sam-parser pyyaml networkx`
 - [ ] **P0-03** Clone MuJoCo Menagerie (Panda) + Google Scanned Objects; record licences
 - [ ] **P0-04** Load Panda + table + mug + knife; render RGB/depth/seg to PNG
 - [ ] **P0-05** Move gripper above the mug with mink
