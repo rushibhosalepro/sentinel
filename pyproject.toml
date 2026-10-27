@@ -1,0 +1,8 @@
+[project]
+name = "sentinel"
+version = "0.1.0"
+description = "Deterministic safety layer for robot actions: the LLM decides how, Sentinel decides whether."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.14"
+dependencies = []
