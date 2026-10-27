@@ -231,6 +231,7 @@
 
     <camera name="front" pos="0.3 -1.45 0.87" xyaxes="1 0 0 0 0.326 0.9454"/>
     <camera name="demo" pos="0.73 -1.99 1.06" xyaxes="1 0 0 0 0.433 0.901" fovy="50"/>
+    <camera name="handover" pos="0.72 -1.27 0.95" xyaxes="1 0 0 0 0.555 0.832" fovy="55"/>
     <camera name="top" pos="0.3 0 2.2" xyaxes="1 0 0 0 1 0"/>
   </worldbody>
 </mujoco>

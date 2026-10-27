@@ -5,4 +5,4 @@ def check(motion, graph=None, rules=None):
     """Return an ALLOW verdict (stub)."""
     print("Sentinel: ALLOW (stub)")
     return {"kind": "ALLOW", "findings": [], "why_path": [],
-            "feedback": None}
+            "feedback": None, "stub": True}

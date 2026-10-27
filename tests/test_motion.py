@@ -23,12 +23,16 @@ def rollout():
 def test_contract(rollout):
     model, _, _, motion = rollout
     assert set(motion) == {"body", "path", "t", "held", "tilt", "speed",
-                           "end_state", "derived_from", "step_ids"}
+                           "sample_steps", "end_state", "derived_from",
+                           "step_ids"}
     assert motion["body"] == "arm"
     n = len(motion["path"])
     assert n > 10
     assert len(motion["t"]) == len(motion["held"]) == len(motion["tilt"]) \
-        == len(motion["speed"]) == n
+        == len(motion["speed"]) == len(motion["sample_steps"]) == n
+    assert set(motion["sample_steps"]) <= set(motion["step_ids"])
+    assert motion["sample_steps"][0] == motion["step_ids"][0]
+    assert motion["sample_steps"][-1] == motion["step_ids"][-1]
     for pose in motion["path"]:
         assert len(pose) == 7
         assert abs(np.linalg.norm(pose[3:]) - 1.0) < 1e-6

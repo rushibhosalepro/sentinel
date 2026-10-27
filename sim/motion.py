@@ -147,6 +147,8 @@ def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
     initial = {b: sim.body(b).xpos.copy() for b in free_bodies(model)}
 
     path, t, held, tilt, speed, step_ids = [], [], [], [], [], []
+    sample_steps = []
+    current = [None]  # id of the step being sampled (sampler is synchronous)
 
     def sampler(ts: float) -> None:
         path.append(_grasp_pose(model, sim))
@@ -154,6 +156,7 @@ def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
         held.append(state.held)
         tilt.append(round(float(state.tilt_deg), 2))
         speed.append(state.speed)
+        sample_steps.append(current[0])
         if on_sample is not None:
             on_sample(model, sim, state, ts)
 
@@ -163,6 +166,7 @@ def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
             raise PrimitiveError(
                 f"step {step.get('id')}: unknown primitive {prim!r}")
         args = step.get("args", {}) or {}
+        current[0] = step.get("id")
         try:
             if prim == "move_to":
                 PRIMITIVES[prim](model, sim, state, args["pose"],
@@ -197,6 +201,7 @@ def plan_to_motion(model, data, plan, derived_from=None, on_sample=None):
         "held": held,
         "tilt": tilt,
         "speed": speed,
+        "sample_steps": sample_steps,
         "end_state": _end_state(model, sim, moved),
         "derived_from": derived_from,
         "step_ids": step_ids,

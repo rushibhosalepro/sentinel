@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.5** (Oct 27, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.6** (Oct 27, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -141,6 +141,7 @@ PlanStep = {"id": str, "primitive": "move_to|grasp|release|tilt|set_speed|stop",
 # sim/motion.py output, the ONE object Sentinel checks
 Motion = {"body": "arm|car", "path": [[x, y, z, qw, qx, qy, qz], ...], "t": [float, ...],
           "held": [obj_id | None, ...], "tilt": [deg, ...], "speed": ["slow|normal", ...],
+          "sample_steps": [str, ...],
           "end_state": [{"rel": "on|near|above|inside", "a": id, "b": id, "dist_cm": float}],
           "derived_from": instruction_id | scene_text_id, "step_ids": [str]}
 
@@ -376,6 +377,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.3 | Oct 27 | S-05: full procedural person (lean, IK arm, hand orientation); split front/demo cameras |
 | v1.4 | Oct 27 | Add S-07 (real hand-over with safe/unsafe variants) |
 | v1.5 | Oct 27 | Add L-00 (live vertical slice, do first) |
+| v1.6 | Oct 27 | Motion gains sample_steps (per-sample step ids) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
