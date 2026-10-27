@@ -17,7 +17,7 @@ All paths below are relative to `sentinel/` unless stated.
 | S-01 | done | S-01 commit | kitchen.xml: Panda + counter + 10 free props + sticky + mocap hand (user's palm/fingers/sleeve) + front/top cams; wine at edge, exposure tamed; stable, both views verified |
 | S-02 | done | S-02 commit | props.yaml (11 objects + owner/visitor); 2-way existence test vs free bodies; 7 passed |
 | S-03 | done | S-03 commit | primitives.py (6 actions, kinematic rollout, honest failures); ik.py gains solve_pose; 7 passed |
-| S-04 | todo | | sim/motion.py plan-to-Motion dry run |
+| S-04 | done | S-04 commit | motion.py plan→Motion on sim copy (AABB end_state); knife_handover demo + strip; 11 passed |
 | S-05 | todo | | sim/human.py scripted hand paths |
 
 ## Log

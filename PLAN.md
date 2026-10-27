@@ -184,7 +184,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **S-01** Kitchen scene: counter, ~15 objects (knife, kettle/jug, cup, laptop, pill bottle, wine glass, ...), human hand (mocap), sticky note texture, cameras
 - [x] **S-02** `props.yaml` semantic layer (properties, owners, people/roles)
 - [x] **S-03** Primitives with grasp-by-attach, tilt, speed
-- [ ] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
+- [x] **S-04** `motion.py`: plan → Motion via dry run on a sim copy (`mj_copyData`)
 - [ ] **S-05** Scripted human-hand paths (reach in at time *t*)
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
