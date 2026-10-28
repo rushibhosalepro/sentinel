@@ -133,21 +133,24 @@ def gt_properties(gt) -> dict:
 
 
 def score_graph(graph, boxes: dict, gt_props: dict, props: dict) -> dict:
-    """Per-object found / label_ok / err_cm / conf / props_ok."""
+    """Per-object found / label_ok / err_cm / ctr_cm / conf / props_ok."""
     rows = {}
     for oid in props["objects"]:
         node = graph.nodes.get(oid)
         if node is None or not node.get("tracked"):
             rows[oid] = {"found": False, "label_ok": False, "err_cm": None,
-                         "conf": None, "props_ok": False}
+                         "ctr_cm": None, "conf": None, "props_ok": False}
             continue
-        err = surface_dist(node["pos"], *boxes[oid]) * 100.0
+        lo, hi = boxes[oid]
+        err = surface_dist(node["pos"], lo, hi) * 100.0
+        ctr = float(np.linalg.norm(np.asarray(node["pos"], dtype=float)
+                                   - (lo + hi) / 2.0)) * 100.0
         label_ok = err <= ASSOC_GATE_M * 100.0
         mine = sorted(b.split("prop:", 1)[1]
                       for a, b, d in graph.edges(oid, data=True)
                       if d.get("type") == "HAS")
         rows[oid] = {"found": True, "label_ok": label_ok,
-                     "err_cm": round(err, 2),
+                     "err_cm": round(err, 2), "ctr_cm": round(ctr, 2),
                      "conf": round(float(node["conf"]), 2),
                      "props_ok": mine == gt_props.get(oid, [])}
     return rows
@@ -176,15 +179,17 @@ def fmt(v) -> str:
 
 
 def scene_table(rows_a: dict, rows_b: dict) -> list[str]:
-    lines = ["| object | text-SAM found | label | err cm | conf | "
-             "Spark+SAM found | label | err cm | conf |",
-             "|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| object | text-SAM found | label | err cm | ctr cm | conf | "
+             "Spark+SAM found | label | err cm | ctr cm | conf |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
     for oid in rows_a:
         a, b = rows_a[oid], rows_b[oid]
         lines.append(f"| {oid} | {fmt(a['found'])} | {fmt(a['label_ok'])} | "
-                     f"{fmt(a['err_cm'])} | {fmt(a['conf'])} | "
+                     f"{fmt(a['err_cm'])} | {fmt(a['ctr_cm'])} | "
+                     f"{fmt(a['conf'])} | "
                      f"{fmt(b['found'])} | {fmt(b['label_ok'])} | "
-                     f"{fmt(b['err_cm'])} | {fmt(b['conf'])} |")
+                     f"{fmt(b['err_cm'])} | {fmt(b['ctr_cm'])} | "
+                     f"{fmt(b['conf'])} |")
     return lines + [""]
 
 
@@ -327,6 +332,10 @@ def main() -> None:
                   "base point lands inside the truth box. Masks lift to "
                   "the visible surface, ~1 radius off the body origin on "
                   "fat objects, so origin distance would mis-score them.")
+    report.append("- ctr cm is the centre distance: perceived base point "
+                  "to the truth box centre. It runs hot on tall/wide "
+                  "objects (the base point is not the centre); the gate "
+                  "uses surface distance.")
     f4_match = frame_hashes["F4"] == frame_hashes["default"]
     report.append("- F4 re-stages default through the live F3->F4 path; "
                   f"frame sha {'matches' if f4_match else 'DIFFERS'} "

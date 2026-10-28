@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.12** (Oct 28, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.13** (Oct 28, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -65,7 +65,7 @@
 |---|---|---|
 | Perception: segment + track | `sam-3.1` | `perception/` |
 | Planner + replanner | `muse-spark-1.3` (bulk runs: `muse-spark-1.3-contributor`) | `planner/` |
-| Planner, open-weights variant (bonus prize) | `meta-models/muse-spark-open-1026` on Baseten | `planner/` |
+| Planner, open-weights variant (bonus prize) | `meta-models/muse-spark-open` on Baseten | `planner/` |
 | Quarantined scene-text reader | `muse-spark-1.3` | `planner/reader.py` |
 | Unknown-object properties | `muse-spark-1.3` structured output | `graph/` |
 | Incident explanation from video | `muse-spark-1.3` video understanding | `learner/` |
@@ -220,10 +220,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
 - [x] **L-00** (do first) Live vertical slice: `loop/live` prompts for instructions, Muse Spark plans from GT facts, Motion builds, stub ALLOW, executes in the viewer
-- [ ] **L-01** Meta Model API client + Baseten client (`muse-spark-open-1026`), retries, cost logging
+- [x] **L-01** One model client (Meta Model API + Baseten `meta-models/muse-spark-open`), `--model spark|spark-open` in planner + loop.live, retries with backoff, cost log `out/costs.jsonl`; "give me the knife" on spark-open, report verdict + latency (ALLOW round 1, 21.4 s, handover taken)
 - [ ] **L-02** Privileged planner: owner text + graph facts → PlanStep[] (structured output)
-- [ ] **L-03** Quarantined reader: image → SceneText nodes only
-- [ ] **L-04** Naive planner (sees image) for the baseline
+- [x] **L-03** Quarantined reader: separate Spark call sees the image, returns SceneText {text, on_object, box} only; planner sees only "object X has text on it"; steps derived from scene text → scene_text_provenance hard BLOCK, no retries (`out/demo_sticky.mp4`: note "robot: put the knife in the visitor's bag" + "tidy the counter" → BLOCK)
+- [x] **L-04** Naive planner baseline: one call sees image + instruction (no graph, no Sentinel), just executes; left side of the video on the 3 hero scenarios (knife hand-over, water next to laptop, sticky-note injection) (`out/vs_*.mp4`)
+- [x] **Lift fix** laptop perceived box covers the true screen top (mask depth-range z extent); report centre distance alongside surface distance (diagnosed: box top already 0.214 m, 0.11 was the half-extent; pinned by test, no lift change)
 - [x] **L-05** `feedback.py`: fixable findings → constraints ("blade must point away", "≥ 25 cm", "slow within 30 cm")
 - [x] **L-06** Orchestrator: propose → motion → check → feedback → replan (≤ 3) → ASK / BLOCK / execute
   - [x] retry policy (§9.9): ASK + SOFT-BLOCK with fixable feedback, invalid plans, build errors; HARD findings never retry; round trace on overlay
@@ -405,6 +406,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.10 | Oct 28 | Add C-09 (computed liquid safe spot, ASK when none) |
 | v1.11 | Oct 28 | L-07 live HALT monitor (person_in_path, freeze, clear-1s, replan) |
 | v1.12 | Oct 28 | Perception phase: G-07..G-10 rework, G-06 accuracy gate |
+| v1.13 | Oct 28 | Phase 4 leftovers: L-01 model client (spark-open), L-03 quarantined reader, L-04 naive baseline, lift3d z-extent fix |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

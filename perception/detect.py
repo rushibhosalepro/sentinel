@@ -13,14 +13,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import time
 from pathlib import Path
 
-from openai import OpenAI
+from perception.sam import CACHE_DIR, REPO_ROOT
+from planner.model_client import chat as model_chat
+from planner.model_client import get_client
 
-from perception.sam import CACHE_DIR, REPO_ROOT, load_settings
-
-MODEL = "muse-spark-1.3"
 EFFORT = "minimal"  # fastest valid setting (out/planner_latency.md)
 
 DETECT_SCHEMA = {
@@ -125,7 +123,7 @@ def parse_detections(content: str, width: int, height: int):
 
 
 def detect_objects(image_path: Path, width: int, height: int,
-                   model: str = MODEL, effort: str = EFFORT,
+                   effort: str = EFFORT,
                    refresh: bool = False) -> tuple[list, dict | None]:
     """Detect {label, box}[] on the frame (cached per frame hash).
 
@@ -144,14 +142,11 @@ def detect_objects(image_path: Path, width: int, height: int,
             raise RuntimeError(f"cached detections invalid: {err}")
         return dets, None
 
-    base_url, api_key = load_settings()
-    client = OpenAI(base_url=base_url, api_key=api_key,
-                    timeout=120.0, max_retries=2)
+    client, model_id, spec, alias = get_client("spark")
     data_url = ("data:image/png;base64," + base64.b64encode(
         image_path.read_bytes()).decode())
-    t0 = time.perf_counter()
-    resp = client.chat.completions.create(
-        model=model,
+    content, usage, secs = model_chat(
+        client, model=model_id, spec=spec, alias=alias, purpose="detect",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": [
@@ -167,20 +162,13 @@ def detect_objects(image_path: Path, width: int, height: int,
         },
         reasoning_effort=effort,
     )
-    print(f"detect took {time.perf_counter() - t0:.1f} s "
-          f"(model={model}, effort={effort})")
-    content = resp.choices[0].message.content
+    print(f"detect took {secs:.1f} s (model={model_id}, effort={effort})")
     dets, err = parse_detections(content, width, height)
     if err is not None:
         raise RuntimeError(f"detector output invalid: {err}")
-    usage = None
-    if resp.usage is not None:
-        usage = {"prompt_tokens": resp.usage.prompt_tokens,
-                 "completion_tokens": resp.usage.completion_tokens,
-                 "total_tokens": resp.usage.total_tokens}
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cached.write_text(json.dumps({
-        "model": model, "effort": effort,
+        "model": model_id, "effort": effort,
         "image": str(image_path), "image_sha256": frame_sha(image_path),
         "width": width, "height": height,
         "n_detections": len(dets), "usage": usage, "content": content,

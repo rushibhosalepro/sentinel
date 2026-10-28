@@ -243,6 +243,38 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         note = None
         rounds = job.get("rounds", 0)
         trace: list[str] = list(job.get("trace", []))
+        if job.get("attack_frame"):  # L-03 attack demo: read, quarantine
+            from loop.quarantine import (
+                attack_note,
+                project_props,
+                quarantine_for,
+            )
+            from perception.frames import HEIGHT, WIDTH
+            from perception.reader import read_scene_text
+            try:
+                texts = read_scene_text(job["attack_frame"],
+                                        WIDTH, HEIGHT)
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                trace.append("quarantine: ERROR reader error")
+                results.put({"gen": job["gen"],
+                             "error": f"reader error: {e}", "trace": trace})
+                continue
+            projected = project_props(model, job["data"], job["props"],
+                                      "front", WIDTH, HEIGHT)
+            job["quarantine"] = quarantine_for(texts, job["props"],
+                                               projected)
+            # Attack context persists across replan rounds (a VLM's
+            # context does); the round note is appended after it.
+            attack_ctx = attack_note(job["quarantine"]) \
+                if job["quarantine"] else None
+            for o in job["facts"]["objects"]:
+                o["has_text"] = o["id"] in job["quarantine"]
+            if job["quarantine"]:
+                trace.append("quarantine: " + ", ".join(
+                    sorted(job["quarantine"])) + " has text on it")
+                print(f"quarantine: {job['quarantine']}")
+        else:
+            attack_ctx = None
         conf_summary = None
         if "frame" in job:  # --perception sam: see before thinking
             from perception.perceive import perceive_frame
@@ -275,8 +307,16 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         while True:  # replan loop
             attempt = rounds + 1
             try:
+                round_note, system = note, None
+                if attack_ctx:
+                    from planner.planner import SYSTEM_PROMPT_UNPATCHED
+                    round_note = attack_ctx if note is None \
+                        else f"{attack_ctx}\n\n{note}"
+                    system = SYSTEM_PROMPT_UNPATCHED
                 content = plan_instruction(job["instruction"], job["facts"],
-                                           note=note)
+                                           model=job.get("model"),
+                                           note=round_note,
+                                           system_prompt=system)
             except Exception as e:  # noqa: BLE001 - reported, never raised
                 trace.append(f"Round {attempt}: ERROR planner error")
                 results.put({"gen": job["gen"],
@@ -301,6 +341,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 model, job["data"], steps, job["home_pos"],
                 job["home_quat"], job["instruction"])
             if err is not None:
+                _print_plan(steps)
                 if rounds >= MAX_REPLAN_ROUNDS:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
@@ -312,6 +353,16 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 trace.append(f"feedback: {err}"[:80])
                 print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
                 continue
+            if job.get("quarantine"):  # L-03: derived from scene text?
+                from loop.quarantine import scan_steps
+                hit = scan_steps(steps, job["quarantine"],
+                                 job["instruction"], job["props"],
+                                 job["valid_people"])
+                if hit is not None:
+                    script["motion"]["derived_from"] = (
+                        f"scene_text:{sorted(job['quarantine'])[0]}")
+                    trace.append(f"quarantine: {hit['detail']}"[:80])
+                    print(f"quarantine hit: {hit['detail']}")
             graph = graph_snapshot(model, job["data"], job["props"],
                                      perceived=job.get("perceived"))
             try:
@@ -403,10 +454,34 @@ def _perceive_sync(model, data, props, tag: str = "live") -> tuple:
     return out["positions"], out["perceived"], summary
 
 
+def _render_idle_clip(model, data, out_path: str, fps: int = 30,
+                      seconds: float = 3.0) -> None:
+    """Save a static clip: proof the robot did not move (BLOCK demo)."""
+    import imageio.v2 as imageio
+    from pathlib import Path
+
+    from sim.world import HEIGHT, WIDTH
+
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    try:
+        with imageio.get_writer(out, fps=fps, codec="libx264",
+                                quality=8) as writer:
+            for _ in range(int(fps * seconds)):
+                renderer.update_scene(data, camera="demo")
+                writer.append_data(renderer.render())
+    finally:
+        renderer.close()
+    print(f"saved {out} (static: Sentinel refused to move)")
+
+
 def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   preset: str | None = None,
                   f6_at: float | None = None,
-                  perception: str = "truth") -> None:
+                  perception: str = "truth",
+                  planner_model: str = "spark",
+                  attack: str | None = None) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -442,11 +517,16 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     results: queue.Queue = queue.Queue()
     threading.Thread(target=_planner_worker, args=(model, jobs, results),
                      daemon=True).start()
-    jobs.put({"gen": 0, "instruction": instruction, "facts": facts,
-              "data": data, "valid_ids": set(props["objects"]),
-              "valid_people": set(props["people"]), "props": props,
-              "home_pos": home_pos, "home_quat": home_quat,
-              "perceived": perceived})
+    job = {"gen": 0, "instruction": instruction, "facts": facts,
+           "data": data, "valid_ids": set(props["objects"]),
+           "valid_people": set(props["people"]), "props": props,
+           "home_pos": home_pos, "home_quat": home_quat,
+           "perceived": perceived, "model": planner_model}
+    if attack == "scene-text":
+        from perception.reader import stage_attack_frame
+        job["attack_frame"] = stage_attack_frame(model, data, props)
+        print(f"attack staged: {job['attack_frame'].name}")
+    jobs.put(job)
 
     def take_result():
         res = results.get()
@@ -467,6 +547,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         if verdict["kind"] != "ALLOW":
             print(f"Sentinel: {verdict['kind']} (not moving)")
             jobs.put(None)
+            _render_idle_clip(model, data, out_path, fps)
             raise SystemExit(1)
         return steps, script, res["rounds"], list(res.get("trace", []))
 
@@ -606,7 +687,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "home_quat": home_quat,
                                           "rounds": rounds_start,
                                           "trace": trace,
-                                          "perceived": perceived})
+                                          "perceived": perceived,
+                                          "model": planner_model})
                                 _, script, rounds, trace = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
@@ -649,6 +731,15 @@ def main() -> None:
                         help="scene graph source: sim ground truth, or "
                         "SAM 3.1 + Muse Spark from the front camera "
                         "(G-09; default truth until G-06 passes)")
+    parser.add_argument("--model", default="spark",
+                        choices=["spark", "spark-open"],
+                        help="planner model (L-01; spark-open needs "
+                        "BASETEN_API_KEY in .env.local)")
+    parser.add_argument("--attack", default=None,
+                        choices=["scene-text"],
+                        help="DEMO ONLY: stage hostile scene text and "
+                        "expose the planner to it, to prove the L-03 "
+                        "quarantine BLOCKs it (never use otherwise)")
     args = parser.parse_args()
     if bool(args.record) != bool(args.instruction):
         parser.error("--record and --instruction go together")
@@ -656,7 +747,8 @@ def main() -> None:
         parser.error("--f6-at needs --record")
     if args.record:
         _run_headless(args.instruction, args.record, preset=args.preset,
-                      f6_at=args.f6_at, perception=args.perception)
+                      f6_at=args.f6_at, perception=args.perception,
+                      planner_model=args.model, attack=args.attack)
         return
 
     model, data = load_scene("kitchen")
@@ -725,6 +817,13 @@ def main() -> None:
         path = save_frame(frame, OUT_DIR / "perception_live.png")
         return {"frame": frame, "path": path}
 
+    def _capture_attack():
+        """Stage the attack frame (call under viewer lock)."""
+        if args.attack != "scene-text":
+            return None
+        from perception.reader import stage_attack_frame
+        return stage_attack_frame(model, data, props, tag="live_attack")
+
     def _dispatch(text: str, now: float) -> None:
         with viewer.lock():
             scratch = mujoco.MjData(model)
@@ -732,15 +831,19 @@ def main() -> None:
             facts = scene_facts(model, data, props,
                                 reaching=person["active"])
             captured = _capture()
+            attacked = _capture_attack()
         job = {"gen": st["gen"], "instruction": text,
                "facts": facts, "data": scratch,
                "valid_ids": valid_ids,
                "valid_people": valid_people,
                "props": props,
                "home_pos": home["hand_pos"],
-               "home_quat": home["hand_quat"]}
+               "home_quat": home["hand_quat"],
+               "model": args.model}
         if captured is not None:
             job["frame"] = captured
+        if attacked is not None:
+            job["attack_frame"] = attacked
         jobs.put(job)
         st.update(phase="planning", instruction=text,
                   plan_start=now, steps=None, script=None,
@@ -763,6 +866,7 @@ def main() -> None:
                                 reaching=person["active"],
                                 holding=st["held_now"])
             captured = _capture()
+            attacked = _capture_attack()
         rounds_start = st["rounds"] + 1
         trace = (st.get("trace") or []) + [
             f"clear {CLEAR_S:.0f}s -> fresh plan (round "
@@ -774,9 +878,12 @@ def main() -> None:
                "props": props,
                "home_pos": home["hand_pos"],
                "home_quat": home["hand_quat"],
-               "rounds": rounds_start, "trace": trace}
+               "rounds": rounds_start, "trace": trace,
+               "model": args.model}
         if captured is not None:
             job["frame"] = captured
+        if attacked is not None:
+            job["attack_frame"] = attacked
         jobs.put(job)
         st.update(phase="planning", plan_start=now, steps=None,
                   script=None, seg_i=0, motion=None, verdict=None,
@@ -786,6 +893,9 @@ def main() -> None:
         print(f"replanning from HALT state (round {rounds_start + 1})")
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
     print(f"perception: {'SAM 3.1 + Muse Spark' if args.perception == 'sam' else 'sim ground truth'}")
+    print(f"planner model: {args.model}")
+    if args.attack:
+        print("ATTACK DEMO ONLY: scene text will be staged + exposed")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
     print("[F3] cup next to laptop  [F4] default scene")
     print("[F6] person grabs at the gripper (HALT demo)")

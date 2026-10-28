@@ -58,7 +58,7 @@ def _run(model, data, contents, verdicts, monkeypatch,
     calls = []
     contents = list(contents)
 
-    def fake_plan(instruction, facts, note=None):
+    def fake_plan(instruction, facts, note=None, **kwargs):
         calls.append(note)
         return contents.pop(0)
 

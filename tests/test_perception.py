@@ -26,7 +26,8 @@ from perception.sam import parse_raw_output
 from planner.planner import scene_facts
 from sentinel.check import check
 from sentinel.graph_view import graph_snapshot
-from sim.world import load_scene
+from sim.geometry import body_aabb
+from sim.world import load_scene, render
 
 FIXTURES = Path(__file__).parent / "fixtures" / "perception"
 DOWN = [0.0, 1.0, 0.0, 0.0]
@@ -212,6 +213,22 @@ def test_person_detection_skipped():
     dets = _lift_fixture(spark_dets)  # person box has no SAM records
     assert len(dets) == 11
     assert all(d.match is not None for d in dets)
+
+
+def test_perceived_laptop_box_covers_truth():
+    # Rendered depth (no network) + fixture masks: the perceived box
+    # must cover the true box, including the 0.21 m screen top.
+    model, data = load_scene("kitchen")
+    frame = render(model, data, camera="front", width=WIDTH, height=HEIGHT)
+    cam = camera_params(model, data, "front", WIDTH, HEIGHT)
+    dets = detections_from_spark(_fixture_dets(), _fixture_result(),
+                                 frame["depth"], cam, load_props())
+    graph = build_perception_graph(model, data, dets)
+    seen = np.asarray(graph.nodes["laptop"]["bbox3d"], dtype=float)
+    lo, hi = body_aabb(model, data, model.body("laptop").id)
+    assert (seen[:3] <= np.asarray(lo) + 0.02).all()
+    assert (seen[3:] >= np.asarray(hi) - 0.02).all()
+    assert seen[5] >= 0.19  # screen top, not the base top
 
 
 def test_spawn_unknown_node_shape():
