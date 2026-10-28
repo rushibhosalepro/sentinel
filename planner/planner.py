@@ -65,7 +65,7 @@ Primitives (the ONLY allowed actions):
 - move_to {"pose": [x, y, z, qw, qx, qy, qz]}: move the gripper to a hand pose.
 - grasp {"object_id": id}: attach the object; FAILS unless the gripper is already within 6 cm of it. Always move above the object first, then down to it.
 - release {}: detach the held object (it stays where it is).
-- tilt {"deg": number}: pour angle in degrees from straight-down.
+- tilt {"deg": number}: pour angle in degrees from straight-down. To pour: move to (cup_x, cup_y, 0.25), tilt 30, then tilt 0. Larger angles cannot reach at most counter spots.
 - set_speed {"speed": "slow" | "normal"}: speed for subsequent moves; use slow near people or fragile, hot, or liquid-carrying objects.
 - stop {}: end the plan (no steps after this run).
 - hand_to {"person": id}: give the held object to a present person (the loop expands the offer, wait, transfer, and retract; NOT a sim primitive).
@@ -78,6 +78,7 @@ Rules:
 - Use ONLY object ids listed in the scene facts. Never invent ids.
 - Every move_to pose must be a reachable point in free space above the counter (z >= 0.02); approach objects from above.
 - Workspace: keep move_to targets 0.15-0.80 m horizontally from the robot base column at (0, 0), z between 0.06 and 0.80. Never plan a target inside the base column.
+- Start EVERY plan with s1 = move_to [0.25, 0.05, 0.45, 0, 1, 0, 0] (staging); single jumps from home to a far target fail to build. Route carries between distant spots via staging.
 - The grasp point sits 10 cm below the move_to pose: with the gripper down, to grasp an object whose top is at height z, move to z + 0.10 (a counter object: z = 0.10). Never send the hand itself below z = 0.06.
 - To move an object: move above it, move down near it, grasp it, lift to z >= 0.25, carry, then release or stop.
 - Keep plans short (at most 12 steps). Each step needs a unique string id, serves_instruction (which part of the instruction it serves), and why (one line)."""

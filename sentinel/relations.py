@@ -180,24 +180,40 @@ def measure_held(motion, graph, i: int) -> dict | None:
             "part": best[1]}
 
 
+def _aabb_xz_gap(pt, epos, extent) -> float:
+    """Horizontal gap from pt to the electronic's body box (0 if inside)."""
+    dx = max(0.0, abs(float(pt[0] - epos[0])) - extent[0])
+    dy = max(0.0, abs(float(pt[1] - epos[1])) - extent[1])
+    return float(np.hypot(dx, dy))
+
+
 def measure_held_electronic(motion, graph, i: int) -> dict | None:
-    """Closest held-origin gap to an electronic (None if empty-handed)."""
+    """Closest held-origin gap to an electronic (None if empty-handed).
+
+    Horizontal distance to the body surface (AABB): pouring above the
+    laptop from height is the hazard (research07 `above` relation), and
+    the laptop is 32 cm wide, so origin distance would miss clean pours
+    beside it. Nodes without an extent fall back to origin distance.
+    """
     obj = motion["held"][i]
     if obj is None:
         return None
     pt = carried_point(motion, graph, obj, i)
     if pt is None:
         return None
-    best = (None, float("inf"))
+    best = (None, float("inf"), False)
     for eid, node in graph["objects"].items():
         if "electronic" not in node.get("properties", []):
             continue
-        d = float(np.linalg.norm(pt - np.asarray(node["pos"])))
+        epos = np.asarray(node["pos"], dtype=float)
+        ext = node.get("extent") or [0.0, 0.0, 0.0]
+        d = _aabb_xz_gap(pt, epos, ext)
         if d < best[1]:
-            best = (eid, d)
+            best = (eid, d, float(pt[2] - epos[2]) - ext[2] > 0.10)
     if best[0] is None:
         return None
-    return {"gap_cm": best[1] * 100.0, "obj": obj, "electronic": best[0]}
+    return {"gap_cm": best[1] * 100.0, "obj": obj, "electronic": best[0],
+            "above": best[2]}
 
 
 def release_events(motion, graph) -> list[dict]:

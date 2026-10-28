@@ -7,14 +7,24 @@ added by the caller when the scenario stages them.
 
 from __future__ import annotations
 
+import numpy as np
+
+from sim.geometry import body_aabb
+
 
 def graph_snapshot(model, data, props: dict) -> dict:
     """Build the checker's graph from props + current sim state."""
     objects = {}
     for oid, spec in props["objects"].items():
         bid = model.body(oid).id
+        try:
+            lo, hi = body_aabb(model, data, bid)
+            extent = ((np.asarray(hi) - np.asarray(lo)) / 2.0).tolist()
+        except Exception:  # noqa: BLE001 - unbounded geometry -> point
+            extent = [0.0, 0.0, 0.0]
         objects[oid] = {"pos": data.xpos[bid].copy(),
                         "quat": data.xquat[bid].copy(),
+                        "extent": extent,
                         "properties": list(spec.get("properties", [])),
                         "owner": spec.get("owner"), "conf": 1.0}
     hid = model.body("human_hand").id

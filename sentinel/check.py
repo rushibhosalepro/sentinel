@@ -249,7 +249,8 @@ def _detail(rule_id: str, ev: dict) -> str:
     if rule_id == "liquid_above_electronic":
         what = f"tilted {ev['tilt_deg']:.0f}°" if "tilt_deg" in ev \
             else f"held {ev['obj']}"
-        return (f"{what} {ev['gap_cm']:.0f} cm from electronic "
+        where = "above" if ev.get("above") else "from"
+        return (f"{what} {ev['gap_cm']:.0f} cm {where} electronic "
                 f"{ev['electronic']}")
     if rule_id == "restricted_item":
         why = ("medication" if "medication" in ev.get("props", [])
@@ -321,15 +322,16 @@ def check(motion, graph, rules=None) -> dict:
             kind = f["_verdict"]
     ordered = sorted(findings,
                      key=lambda f: SEVERITY[f["_verdict"]], reverse=True)
-    why_path = [{"rule": f["rule"], "verdict": f["_verdict"], "t": f["t"]}
-                for f in ordered]
+    why_path = [{"rule": f["rule"], "verdict": f["_verdict"],
+                 "hard": f["_hard"], "t": f["t"]} for f in ordered]
     # Feedback explains the verdict: hints from soft fixable findings AT
-    # the winning severity. A hard BLOCK therefore returns NO feedback,
-    # even when a soft ASK fired alongside it.
+    # the winning severity. Any HARD finding kills all feedback (never
+    # teach a jailbroken planner), even when a soft finding fired too.
+    any_hard = any(f["_hard"] for f in ordered)
     hints = [f["_hint"] for f in ordered
              if f["_verdict"] == kind and not f["_hard"]
              and f["_fixable"] and f["_hint"]]
-    feedback = sorted(set(hints)) or None
+    feedback = None if any_hard else (sorted(set(hints)) or None)
     for f in findings:
         for k in ("_verdict", "_hard", "_hint", "_fixable"):
             del f[k]

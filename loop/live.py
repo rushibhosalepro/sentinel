@@ -32,16 +32,20 @@ import numpy as np
 from graph.scene_graph import load_props
 from loop.handover import build_execution_script, step_handover
 from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
-                           format_replan_note, should_replan)
+                           format_error_note, format_replan_note,
+                           should_replan)
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
 from sentinel.graph_view import graph_snapshot
+from sim.primitives import free_qposadr
 from sim.human import HANDOVER_HOVER, park_pos, reach_to_counter
 from sim.play import HAND_BODY, REACH_DURATION, drag_with_hand
 from sim.world import load_scene
 
 KEY_F1 = 290  # GLFW physical keys (no letters: safe while typing)
 KEY_F2 = 291
+KEY_F3 = 292
+KEY_F4 = 293
 KEY_F5 = 294
 KEY_ESC = 256
 
@@ -147,6 +151,8 @@ def _overlay_text(st: dict) -> str:
             lines.append(f"  ... +{len(ids) - 7} more")
     if st["verdict"] is not None:
         lines.append(f"Sentinel: {st['verdict']['kind']}")
+        for t in (st.get("trace") or [])[-2:]:
+            lines.append(f"  {t}"[:64])
         for f in st["verdict"]["findings"][:3]:
             lines.append(f"  ! {f['rule']}: {f['detail']}"[:64])
     return "\n".join(lines)
@@ -194,8 +200,10 @@ def _restore(model, data, home: dict, person: dict) -> None:
 def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
     """Background thread: propose -> motion -> check -> replan (L-06).
 
-    ASK verdicts with fixable feedback replan (max 3 rounds); BLOCK and
-    HALT are terminal (no retries, no explanation).
+    Retries ASK and SOFT-BLOCK verdicts with fixable feedback, plus
+    invalid plans and build errors (error text as feedback); never
+    retries a verdict with a hard finding. Max 3 rounds. Records the
+    round trace for the overlay.
     """
     while True:
         job = jobs.get()
@@ -203,40 +211,70 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             return
         note = None
         rounds = 0
+        trace: list[str] = []
         while True:  # replan loop
+            attempt = rounds + 1
             try:
                 content = plan_instruction(job["instruction"], job["facts"],
                                            note=note)
             except Exception as e:  # noqa: BLE001 - reported, never raised
+                trace.append(f"Round {attempt}: ERROR planner error")
                 results.put({"gen": job["gen"],
-                             "error": f"planner error: {e}"})
+                             "error": f"planner error: {e}", "trace": trace})
                 break
             steps, err = plan_from_content(content, job["valid_ids"],
                                            job["valid_people"])
             if err is not None:
-                results.put({"gen": job["gen"],
-                             "error": f"invalid plan: {err}"})
-                break
+                err = f"invalid plan: {err}"
+                if rounds >= MAX_REPLAN_ROUNDS:
+                    trace.append(f"Round {attempt}: ERROR {err}"[:80])
+                    results.put({"gen": job["gen"], "error": err,
+                                 "trace": trace})
+                    break
+                rounds += 1
+                note = format_error_note(err, attempt)
+                trace.append(f"Round {attempt}: ERROR {err}"[:80])
+                trace.append(f"feedback: {err}"[:80])
+                print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
+                continue
             script, err = build_execution_script(
                 model, job["data"], steps, job["home_pos"],
                 job["home_quat"], job["instruction"])
             if err is not None:
-                results.put({"gen": job["gen"], "error": err})
-                break
+                if rounds >= MAX_REPLAN_ROUNDS:
+                    trace.append(f"Round {attempt}: ERROR {err}"[:80])
+                    results.put({"gen": job["gen"], "error": err,
+                                 "trace": trace})
+                    break
+                rounds += 1
+                note = format_error_note(err, attempt)
+                trace.append(f"Round {attempt}: ERROR {err}"[:80])
+                trace.append(f"feedback: {err}"[:80])
+                print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
+                continue
             graph = graph_snapshot(model, job["data"], job["props"])
             try:
                 verdict = check(script["motion"], graph)
             except Exception as e:  # noqa: BLE001 - reported, never raised
+                trace.append(f"Round {attempt}: ERROR Sentinel error")
                 results.put({"gen": job["gen"],
-                             "error": f"Sentinel error: {e}"})
+                             "error": f"Sentinel error: {e}", "trace": trace})
                 break
+            rules = ",".join(dict.fromkeys(
+                f["rule"] for f in verdict["findings"]))
+            entry = f"Round {attempt}: {verdict['kind']}" \
+                + (f" {rules}" if rules else "")
             if not should_replan(verdict, rounds):
+                trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
                              "script": script, "verdict": verdict,
-                             "rounds": rounds})
+                             "rounds": rounds, "trace": trace})
                 break
             rounds += 1
-            note = format_replan_note(verdict, rounds)
+            note = format_replan_note(verdict, attempt)
+            cons = "; ".join(constraints_for(verdict))
+            trace.append(entry)
+            trace.append(f"feedback: {cons}")
             print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: "
                   f"{constraints_for(verdict)}")
 
@@ -262,7 +300,8 @@ def _reset_all(viewer, model, data, home, person, st) -> None:
         _clear_preview(viewer)
         _draw_orb(viewer, ORB_IDLE)
     st.update(phase="idle", instruction="", steps=None, script=None,
-              seg_i=0, motion=None, verdict=None, error=None, current=None)
+              seg_i=0, motion=None, verdict=None, error=None, current=None,
+              trace=[])
 
 
 def _random_reach_target() -> np.ndarray:
@@ -270,8 +309,27 @@ def _random_reach_target() -> np.ndarray:
                      random.uniform(-0.3, 0.25), 0.33])
 
 
-def _run_headless(instruction: str, out_path: str, fps: int = 30) -> None:
-    """One instruction, no window: execute and save an mp4 (verification)."""
+CUP_NEAR_LAPTOP = (0.35, 0.06, 0.0)  # F3: 9 cm off the laptop edge
+
+
+def _apply_preset(model, data, home, name: str) -> None:
+    """Stage the scene: 'cup_next_to_laptop' (F3) or 'default' (F4)."""
+    adr = free_qposadr(model, "cup")
+    if name == "cup_next_to_laptop":
+        data.qpos[adr:adr + 3] = CUP_NEAR_LAPTOP
+    elif name == "default":
+        data.qpos[adr:adr + 7] = home["qpos"][adr:adr + 7]
+    else:
+        raise ValueError(f"unknown preset {name!r}")
+    mujoco.mj_forward(model, data)
+
+
+def _run_headless(instruction: str, out_path: str, fps: int = 30,
+                  preset: str | None = None) -> None:
+    """One instruction, no window: execute and save an mp4 (verification).
+
+    Runs the same worker (with the L-06 replan loop) as the viewer loop.
+    """
     import imageio.v2 as imageio
     from pathlib import Path
 
@@ -279,24 +337,32 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30) -> None:
 
     model, data = load_scene("kitchen")
     props = load_props()
+    if preset is not None:
+        _apply_preset(model, data, None, preset)
+        print(f"preset: {preset}")
     facts = scene_facts(model, data, props)
-    content = plan_instruction(instruction, facts)
-    steps, err = plan_from_content(content, set(props["objects"]),
-                                   set(props["people"]))
-    if err is not None:
-        print(f"invalid plan: {err} (not moving)")
-        raise SystemExit(1)
-    _print_plan(steps)
     hand_id = model.body("hand").id
-    script, err = build_execution_script(
-        model, data, steps, data.xpos[hand_id].copy(),
-        data.xquat[hand_id].copy(), instruction)
-    if err is not None:
-        print(f"{err} (not moving)")
+    jobs: queue.Queue = queue.Queue()
+    results: queue.Queue = queue.Queue()
+    threading.Thread(target=_planner_worker, args=(model, jobs, results),
+                     daemon=True).start()
+    jobs.put({"gen": 0, "instruction": instruction, "facts": facts,
+              "data": data, "valid_ids": set(props["objects"]),
+              "valid_people": set(props["people"]), "props": props,
+              "home_pos": data.xpos[hand_id].copy(),
+              "home_quat": data.xquat[hand_id].copy()})
+    res = results.get()
+    jobs.put(None)
+    if "error" in res:
+        if res.get("trace"):
+            print(" -> ".join(res["trace"]))
+        print(f"{res['error']} (not moving)")
         raise SystemExit(1)
+    steps, script, verdict = res["steps"], res["script"], res["verdict"]
+    _print_plan(steps)
     print(_motion_summary(script["motion"]))
-    verdict = check(script["motion"],
-                    graph_snapshot(model, data, props))
+    if res.get("trace"):
+        print(" -> ".join(res["trace"]))
     for f in verdict["findings"]:
         print(f"  ! {f['rule']}: {f['detail']}")
     if verdict["kind"] != "ALLOW":
@@ -354,11 +420,14 @@ def main() -> None:
     parser.add_argument("--instruction", default=None)
     parser.add_argument("--record", default=None, metavar="OUT.mp4",
                         help="headless: run one instruction, save a video")
+    parser.add_argument("--preset", default=None,
+                        choices=["cup_next_to_laptop"],
+                        help="headless: stage a scene preset first (F3 live)")
     args = parser.parse_args()
     if bool(args.record) != bool(args.instruction):
         parser.error("--record and --instruction go together")
     if args.record:
-        _run_headless(args.instruction, args.record)
+        _run_headless(args.instruction, args.record, preset=args.preset)
         return
 
     model, data = load_scene("kitchen")
@@ -373,18 +442,24 @@ def main() -> None:
             "hand_quat": data.xquat[hand_id].copy()}
     person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
               "face": None, "origin": None, "carrying": None}
-    flags = {"reach": False, "reset": False, "quit": False, "cam": False}
+    flags = {"reach": False, "reset": False, "quit": False, "cam": False,
+             "preset": None}
     st = {"phase": "idle", "instruction": "", "plan_start": 0.0,
           "steps": None, "script": None, "seg_i": 0, "seg_t0": 0.0,
           "motion": None, "verdict": None, "error": None,
           "exec_t0": 0.0, "preview_until": 0.0, "current": None,
-          "gen": 0, "cam": "demo", "last_t": 0.0, "queued": 0}
+          "gen": 0, "cam": "demo", "last_t": 0.0, "queued": 0,
+          "trace": []}
 
     def key_callback(keycode: int) -> None:
         if keycode == KEY_F1:
             flags["reach"] = True
         elif keycode == KEY_F2:
             flags["cam"] = True
+        elif keycode == KEY_F3:
+            flags["preset"] = "cup_next_to_laptop"
+        elif keycode == KEY_F4:
+            flags["preset"] = "default"
         elif keycode == KEY_F5:
             flags["reset"] = True
         elif keycode == KEY_ESC:
@@ -425,6 +500,7 @@ def main() -> None:
             _draw_orb(viewer, ORB_IDLE)
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
+    print("[F3] cup next to laptop  [F4] default scene")
     eof = False
     st["last_t"] = time.perf_counter()
     try:
@@ -446,6 +522,12 @@ def main() -> None:
                 with viewer.lock():
                     viewer.cam.fixedcamid = model.camera(st["cam"]).id
                 print(f"camera: {st['cam']}")
+            if flags["preset"]:
+                name = flags["preset"]
+                flags["preset"] = None
+                with viewer.lock():
+                    _apply_preset(model, data, home, name)
+                print(f"preset: {name}")
             if flags["reach"]:
                 flags["reach"] = False
                 with viewer.lock():
@@ -480,17 +562,21 @@ def main() -> None:
                 res = None
             if res is not None and res["gen"] == st["gen"]:
                 if "error" in res:
-                    st.update(phase="error", error=res["error"])
+                    st.update(phase="error", error=res["error"],
+                              trace=res.get("trace", []))
+                    if res.get("trace"):
+                        print(" -> ".join(res["trace"]))
                     print(f"{res['error']} (not moving)")
                 else:
                     st.update(phase="preview", steps=res["steps"],
                               script=res["script"]["segments"],
                               motion=res["script"]["motion"], seg_i=0,
-                              preview_until=now + PREVIEW_T)
+                              preview_until=now + PREVIEW_T,
+                              trace=res.get("trace", []))
                     _print_plan(res["steps"])
                     print(_motion_summary(res["script"]["motion"]))
-                    if res.get("rounds"):
-                        print(f"(after {res['rounds']} replan round(s))")
+                    if res.get("trace"):
+                        print(" -> ".join(res["trace"]))
                     verdict = res["verdict"]
                     for f in verdict["findings"]:
                         print(f"  ! {f['rule']}: {f['detail']}")

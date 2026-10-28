@@ -79,7 +79,8 @@ def test_blade_toward_person_blocks_without_feedback():
     assert "owner's hand" in f["detail"]
     assert v["feedback"] is None  # hard BLOCK: no feedback
     assert v["why_path"] == [{"rule": "sharp_toward_person",
-                              "verdict": "BLOCK", "t": 0.5}]
+                              "verdict": "BLOCK", "hard": True,
+                              "t": 0.5}]
 
 
 def test_blade_away_allows():
@@ -129,8 +130,9 @@ def test_liquid_near_electronic_blocks_with_feedback():
     v = check(m, _graph(), _rules())
     assert v["kind"] == "BLOCK"
     assert v["findings"][0]["rule"] == "liquid_above_electronic"
-    assert v["feedback"] == ["keep liquids and pouring away from "
-                             "electronics"]
+    assert v["feedback"] == ["move the cup to a clear spot like "
+                             "(0.15, 0.25), away from electronics, then "
+                             "carry the jug there and pour into it"]
 
 
 def test_tilt_branch_fires_without_liquid():

@@ -223,25 +223,35 @@ def release(model, data, state, clock, on_sample) -> None:
 
 
 def tilt(model, data, state, deg, clock, on_sample) -> None:
-    """Pitch the hand to an absolute `deg` from straight-down (pour angle)."""
+    """Pitch the hand to an absolute `deg` from straight-down (pour angle).
+
+    Solved in <=30° hops from the current config: a single 70° endpoint
+    solve gets seed-trapped at extended reach (same disease as the 180°
+    knife flip, same cure as the retract half-turns).
+    """
     deg = float(deg)
+    span = deg - state.tilt_deg
+    n = max(1, int(np.ceil(abs(span) / 30.0)))
     r_down = quat_wxyz_to_mat(DOWN_QUAT)
-    r_tgt = r_down @ Rotation.from_euler("y", deg, degrees=True).as_matrix()
     hand_pos, _ = _hand_pose(model, data)
-    q0 = data.qpos.copy()
-    try:
-        q_target, _ = solve_pose(model, q0, hand_pos, mat_to_quat_wxyz(r_tgt))
-    except IKFailed as e:
-        raise PrimitiveError(f"tilt({deg}): {e}") from e
-    duration = abs(deg - state.tilt_deg) / TILT_RATE
+    for k in range(1, n + 1):
+        d = state.tilt_deg + span * k / n
+        r_tgt = (r_down
+                 @ Rotation.from_euler("y", d, degrees=True).as_matrix())
+        q0 = data.qpos.copy()
+        try:
+            q_target, _ = solve_pose(model, q0, hand_pos,
+                                     mat_to_quat_wxyz(r_tgt))
+        except IKFailed as e:
+            raise PrimitiveError(f"tilt({deg}): {e}") from e
 
-    def apply(alpha: float) -> None:
-        data.qpos[:] = (1.0 - alpha) * q0 + alpha * q_target
-        mujoco.mj_forward(model, data)
-        _drag_held(model, data, state)
-        mujoco.mj_forward(model, data)
+        def apply(alpha: float, q0=q0, q_target=q_target) -> None:
+            data.qpos[:] = (1.0 - alpha) * q0 + alpha * q_target
+            mujoco.mj_forward(model, data)
+            _drag_held(model, data, state)
+            mujoco.mj_forward(model, data)
 
-    _rollout(duration, clock, on_sample, apply)
+        _rollout(abs(span) / n / TILT_RATE, clock, on_sample, apply)
     state.tilt_deg = _tilt_of_quat(_hand_pose(model, data)[1])
 
 

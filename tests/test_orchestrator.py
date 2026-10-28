@@ -7,6 +7,9 @@ from pathlib import Path
 
 import loop.live as live
 from graph.scene_graph import load_props
+from loop.handover import build_execution_script
+from sentinel.check import check
+from sentinel.graph_view import graph_snapshot
 from sim.world import load_scene
 
 PLANS = Path(__file__).parent / "fixtures" / "plans"
@@ -84,6 +87,9 @@ def test_ask_replans_with_constraints(monkeypatch):
     assert "too fast near owner" in calls[1]
     assert res["verdict"]["kind"] == "ALLOW"
     assert res["rounds"] == 1
+    assert res["trace"] == ["Round 1: ASK sharp_fast_near_person",
+                            "feedback: slow within 30 cm of a person",
+                            "Round 2: ALLOW"]
 
 
 def test_block_never_retries(monkeypatch):
@@ -93,6 +99,7 @@ def test_block_never_retries(monkeypatch):
     assert len(calls) == 1
     assert res["verdict"]["kind"] == "BLOCK"
     assert res["rounds"] == 0
+    assert res["trace"] == ["Round 1: BLOCK sharp_toward_person"]
 
 
 def test_ask_gives_up_after_3_rounds(monkeypatch):
@@ -102,6 +109,9 @@ def test_ask_gives_up_after_3_rounds(monkeypatch):
     assert len(calls) == 4
     assert res["verdict"]["kind"] == "ASK"
     assert res["rounds"] == 3
+    assert len(res["trace"]) == 7
+    assert res["trace"][0] == "Round 1: ASK sharp_fast_near_person"
+    assert res["trace"][-1] == "Round 4: ASK sharp_fast_near_person"
 
 
 def test_real_ask_replans_to_allow(monkeypatch):
@@ -121,13 +131,19 @@ def test_real_ask_replans_to_allow(monkeypatch):
         return {"id": f"s{i}", "primitive": prim, "args": args,
                 "serves_instruction": "test", "why": "test"}
 
+    # South corridor: joint-space bows cut ~5 cm inside straight legs,
+    # so the jug reaches the owner around (not over) the laptop AABB zone.
     jug_run = [step(0, "move_to", {"pose": [0.3, 0.0, 0.45, *DOWN]}),
                step(1, "move_to", {"pose": [-0.15, 0.22, 0.25, *DOWN]}),
                step(2, "move_to", {"pose": [-0.15, 0.22, 0.10, *DOWN]}),
                step(3, "grasp", {"object_id": "jug"}),
                step(4, "move_to", {"pose": [-0.15, 0.22, 0.30, *DOWN]}),
-               step(5, "move_to", {"pose": [0.65, -0.05, 0.30, *DOWN]}),
-               step(6, "stop", {})]
+               step(5, "move_to", {"pose": [0.25, 0.05, 0.45, *DOWN]}),
+               step(6, "move_to", {"pose": [0.20, -0.15, 0.35, *DOWN]}),
+               step(7, "move_to", {"pose": [0.20, -0.35, 0.30, *DOWN]}),
+               step(8, "move_to", {"pose": [0.45, -0.35, 0.30, *DOWN]}),
+               step(9, "move_to", {"pose": [0.70, -0.35, 0.30, *DOWN]}),
+               step(10, "stop", {})]
     # Sanity: this motion really ASKS with the real checker.
     hid = model.body("hand").id
     script, err = build_execution_script(
@@ -147,3 +163,92 @@ def test_real_ask_replans_to_allow(monkeypatch):
     assert "slow within 30 cm of a person" in calls[1]
     assert res["verdict"]["kind"] == "ALLOW"
     assert res["rounds"] == 1
+    assert res["trace"][0].startswith("Round 1: ASK")
+    assert res["trace"][-1] == "Round 2: ALLOW"
+
+
+STAGING = [0.25, 0.05, 0.45]
+SAFE_SPOT = (0.15, 0.25)  # hinted pour spot: builds + clears electronics
+JUG_HOME = (-0.15, 0.22)
+
+
+def _mv(x, y, z):
+    return ("move_to", {"pose": [x, y, z, 0.0, 1.0, 0.0, 0.0]})
+
+
+def _plan(seq):
+    return [{"id": f"s{i}", "primitive": prim, "args": args,
+             "serves_instruction": "test", "why": "test"}
+            for i, (prim, args) in enumerate(seq, 1)]
+
+
+def _f3_verdict(plan):
+    """Real live build + real check with the cup at the F3 preset."""
+    model, data = load_scene("kitchen")
+    props = load_props()
+    live._apply_preset(model, data, None, "cup_next_to_laptop")
+    hid = model.body("hand").id
+    script, err = build_execution_script(
+        model, data, plan, data.xpos[hid].copy(),
+        data.xquat[hid].copy(), "test")
+    assert err is None, err
+    return check(script["motion"], graph_snapshot(model, data, props))
+
+
+def _pour_at(cx, cy):
+    jx, jy = JUG_HOME
+    return _plan([
+        _mv(*STAGING), _mv(jx, jy, 0.30), _mv(jx, jy, 0.10),
+        ("grasp", {"object_id": "jug"}), _mv(jx, jy, 0.30), _mv(*STAGING),
+        _mv(cx, cy, 0.45), _mv(cx, cy, 0.25),
+        ("tilt", {"deg": 30}), ("tilt", {"deg": 0}),
+        _mv(cx, cy, 0.45), _mv(*STAGING),
+        _mv(jx, jy, 0.30), _mv(jx, jy, 0.10),
+        ("release", {}), ("stop", {}),
+    ])
+
+
+def test_f3_pour_blocks_soft_with_cup_move_hint():
+    """Round-1 trigger: pouring into the F3 cup soft-BLOCKs, fixable."""
+    cx, cy, _ = live.CUP_NEAR_LAPTOP
+    v = _f3_verdict(_pour_at(cx, cy))
+    assert v["kind"] == "BLOCK"
+    assert {f["rule"] for f in v["findings"]} == {
+        "liquid_above_electronic"}
+    assert v["why_path"] and v["why_path"][0]["hard"] is False
+    assert len(v["feedback"]) == 1
+    assert "cup" in v["feedback"][0]
+    assert "(0.15, 0.25)" in v["feedback"][0]
+
+
+def test_cup_move_recovery_allows():
+    """Round-2 shape: cup to the hinted spot, pour there -> ALLOW."""
+    cx, cy, _ = live.CUP_NEAR_LAPTOP
+    jx, jy = JUG_HOME
+    sx, sy = SAFE_SPOT
+    v = _f3_verdict(_plan([
+        _mv(*STAGING), _mv(cx, cy, 0.30), _mv(cx, cy, 0.10),
+        ("grasp", {"object_id": "cup"}), _mv(cx, cy, 0.30), _mv(*STAGING),
+        _mv(sx, sy, 0.45), _mv(sx, sy, 0.12), ("release", {}),
+        _mv(*STAGING), _mv(jx, jy, 0.30), _mv(jx, jy, 0.10),
+        ("grasp", {"object_id": "jug"}), _mv(jx, jy, 0.30), _mv(*STAGING),
+        _mv(sx, sy, 0.45), _mv(sx, sy, 0.25),
+        ("tilt", {"deg": 30}), ("tilt", {"deg": 0}),
+        _mv(sx, sy, 0.45), _mv(*STAGING),
+        _mv(jx, jy, 0.30), _mv(jx, jy, 0.10),
+        ("release", {}), ("stop", {}),
+    ]))
+    assert v["kind"] == "ALLOW"
+
+
+def test_invalid_plan_retries_with_error_text(monkeypatch):
+    model, data = load_scene("kitchen")
+    res, calls = _run(model, data, ["not json", _content("give_apple.json")],
+                      [_allow()], monkeypatch)
+    assert len(calls) == 2
+    assert "failed to build" in calls[1]
+    assert "not valid JSON" in calls[1]
+    assert res["verdict"]["kind"] == "ALLOW"
+    assert res["rounds"] == 1
+    assert res["trace"][0].startswith("Round 1: ERROR")
+    assert res["trace"][-1] == "Round 2: ALLOW"
