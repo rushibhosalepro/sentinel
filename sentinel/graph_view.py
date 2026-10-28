@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from sentinel.safe_spot import find_safe_spot
 from sim.geometry import body_aabb
 
 
@@ -30,7 +31,7 @@ def graph_snapshot(model, data, props: dict) -> dict:
     hid = model.body("human_hand").id
     tid = model.body("human_torso").id
     scopes = props.get("people", {}).get("owner", {}).get("authorised", [])
-    return {
+    graph = {
         "objects": objects,
         "people": {"owner": {"hand": data.xpos[hid].copy(),
                              "torso": data.xpos[tid].copy(),
@@ -38,3 +39,5 @@ def graph_snapshot(model, data, props: dict) -> dict:
                              "authorised": list(scopes), "role": "owner",
                              "conf": 1.0}},
     }
+    graph["safe_spot_pour"] = find_safe_spot(model, data, graph)
+    return graph

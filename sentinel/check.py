@@ -316,6 +316,19 @@ def check(motion, graph, rules=None) -> dict:
                              "_hint": rule["constraint_hint"],
                              "_fixable": rule["fixable"]})
             break  # first firing per rule
+    # C-09: fill the liquid hint's {safe_spot} from the graph. No spot
+    # (crowded counter, or a graph that never computed one) downgrades
+    # the finding to an unfixable ASK: straight to the owner, no replan.
+    spot = graph.get("safe_spot_pour")
+    for f in findings:
+        if f["rule"] != "liquid_above_electronic":
+            continue
+        if spot is None:
+            f["_verdict"] = "ASK"
+            f["_fixable"] = False
+        else:
+            f["_hint"] = f["_hint"].replace(
+                "{safe_spot}", f"({spot[0]:.2f}, {spot[1]:.2f})")
     kind = "ALLOW"
     for f in findings:
         if SEVERITY[f["_verdict"]] > SEVERITY[kind]:

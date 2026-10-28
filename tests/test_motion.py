@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from sim.motion import KNIFE_HANDOVER_PLAN, plan_to_motion
+from sim.play import rollout_frames
 from sim.primitives import PrimitiveError
 from sim.world import load_scene
 
@@ -76,3 +77,46 @@ def test_bad_plans_rejected():
     with pytest.raises(PrimitiveError):
         plan_to_motion(model, data, [{"id": "x", "primitive": "grasp",
                                       "args": {}}])
+
+
+_DOWN = [0.0, 1.0, 0.0, 0.0]
+
+
+def _tstep(i, prim, args):
+    return {"id": f"s{i}", "primitive": prim, "args": args,
+            "serves_instruction": "test", "why": "test"}
+
+
+def _tilt_plan(sx, sy, extra=()):
+    seq = [_tstep(1, "move_to",
+                  {"pose": [0.25, 0.05, 0.45, *_DOWN]}),
+           _tstep(2, "move_to", {"pose": [sx, sy, 0.45, *_DOWN]}),
+           _tstep(3, "move_to", {"pose": [sx, sy, 0.25, *_DOWN]}),
+           _tstep(4, "tilt", {"deg": 30})]
+    seq += list(extra)
+    seq.append(_tstep(5 + len(extra), "tilt", {"deg": 0}))
+    return seq
+
+
+def test_tilt_round_trip_restores_config():
+    """tilt 30 -> tilt 0 replays: end config == pre-tilt config, exactly."""
+    model, data = load_scene("kitchen")
+    motion, frames, _ = rollout_frames(model, data, _tilt_plan(0.2, 0.15),
+                                       derived_from="test:tilt")
+    steps = motion["sample_steps"]
+    pre = frames[[i for i, s in enumerate(steps) if s == "s3"][-1]]
+    post = frames[[i for i, s in enumerate(steps) if s == "s5"][-1]]
+    assert np.array_equal(pre, post)
+
+
+def test_tilt_after_move_solves_fresh():
+    """A move between tilts disables replay (no teleport to stale q)."""
+    model, data = load_scene("kitchen")
+    extra = (_tstep(5, "move_to",
+                     {"pose": [0.35, 0.06, 0.35, *_DOWN]}),)
+    motion, _, _ = rollout_frames(model, data, _tilt_plan(0.35, 0.06,
+                                                          extra),
+                                  derived_from="test:tilt")
+    assert abs(motion["tilt"][-1]) < 0.6
+    end = np.asarray(motion["path"][-1][:3], dtype=float)
+    assert float(np.linalg.norm(end - [0.35, 0.06, 0.25])) < 0.02

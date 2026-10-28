@@ -187,6 +187,9 @@ def _aabb_xz_gap(pt, epos, extent) -> float:
     return float(np.hypot(dx, dy))
 
 
+aabb_xz_gap = _aabb_xz_gap  # public alias: safe_spot.py reuses the measure
+
+
 def measure_held_electronic(motion, graph, i: int) -> dict | None:
     """Closest held-origin gap to an electronic (None if empty-handed).
 

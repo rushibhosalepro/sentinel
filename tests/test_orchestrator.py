@@ -5,11 +5,16 @@ import queue
 import threading
 from pathlib import Path
 
+import mujoco
+import numpy as np
+
 import loop.live as live
 from graph.scene_graph import load_props
 from loop.handover import build_execution_script
 from sentinel.check import check
 from sentinel.graph_view import graph_snapshot
+from sentinel.relations import aabb_xz_gap
+from sim.primitives import free_qposadr
 from sim.world import load_scene
 
 PLANS = Path(__file__).parent / "fixtures" / "plans"
@@ -168,7 +173,6 @@ def test_real_ask_replans_to_allow(monkeypatch):
 
 
 STAGING = [0.25, 0.05, 0.45]
-SAFE_SPOT = (0.15, 0.25)  # hinted pour spot: builds + clears electronics
 JUG_HOME = (-0.15, 0.22)
 
 
@@ -192,7 +196,8 @@ def _f3_verdict(plan):
         model, data, plan, data.xpos[hid].copy(),
         data.xquat[hid].copy(), "test")
     assert err is None, err
-    return check(script["motion"], graph_snapshot(model, data, props))
+    graph = graph_snapshot(model, data, props)
+    return check(script["motion"], graph), graph
 
 
 def _pour_at(cx, cy):
@@ -208,25 +213,33 @@ def _pour_at(cx, cy):
     ])
 
 
-def test_f3_pour_blocks_soft_with_cup_move_hint():
-    """Round-1 trigger: pouring into the F3 cup soft-BLOCKs, fixable."""
+def test_f3_pour_blocks_soft_with_computed_hint():
+    """Round-1 trigger: F3 pour soft-BLOCKs; hint names computed spot."""
     cx, cy, _ = live.CUP_NEAR_LAPTOP
-    v = _f3_verdict(_pour_at(cx, cy))
+    v, graph = _f3_verdict(_pour_at(cx, cy))
     assert v["kind"] == "BLOCK"
     assert {f["rule"] for f in v["findings"]} == {
         "liquid_above_electronic"}
     assert v["why_path"] and v["why_path"][0]["hard"] is False
-    assert len(v["feedback"]) == 1
-    assert "cup" in v["feedback"][0]
-    assert "(0.15, 0.25)" in v["feedback"][0]
+    assert graph["safe_spot_pour"] == (0.2, 0.15)
+    assert v["feedback"] == ["move the cup to (0.20, 0.15) exactly, "
+                             "away from electronics, then pour into it"]
+
+
+def _f3_spot():
+    """Computed safe spot for the F3 scene (no motion build)."""
+    model, data = load_scene("kitchen")
+    props = load_props()
+    live._apply_preset(model, data, None, "cup_next_to_laptop")
+    return graph_snapshot(model, data, props)["safe_spot_pour"]
 
 
 def test_cup_move_recovery_allows():
-    """Round-2 shape: cup to the hinted spot, pour there -> ALLOW."""
+    """Round-2 shape: cup to the computed spot, pour there -> ALLOW."""
     cx, cy, _ = live.CUP_NEAR_LAPTOP
     jx, jy = JUG_HOME
-    sx, sy = SAFE_SPOT
-    v = _f3_verdict(_plan([
+    sx, sy = _f3_spot()
+    v, _ = _f3_verdict(_plan([
         _mv(*STAGING), _mv(cx, cy, 0.30), _mv(cx, cy, 0.10),
         ("grasp", {"object_id": "cup"}), _mv(cx, cy, 0.30), _mv(*STAGING),
         _mv(sx, sy, 0.45), _mv(sx, sy, 0.12), ("release", {}),
@@ -239,6 +252,26 @@ def test_cup_move_recovery_allows():
         ("release", {}), ("stop", {}),
     ]))
     assert v["kind"] == "ALLOW"
+
+
+def test_spot_moves_with_laptop():
+    """Shift the laptop 10 cm west; the spot follows and stays valid."""
+    before = _f3_spot()
+    model, data = load_scene("kitchen")
+    props = load_props()
+    live._apply_preset(model, data, None, "cup_next_to_laptop")
+    data.qpos[free_qposadr(model, "laptop")] -= 0.10
+    mujoco.mj_forward(model, data)
+    graph = graph_snapshot(model, data, props)
+    after = graph["safe_spot_pour"]
+    assert after is not None and tuple(after) != tuple(before)
+    pt = np.array(after, dtype=float)
+    for node in graph["objects"].values():
+        if "electronic" not in node.get("properties", []):
+            continue
+        gap = aabb_xz_gap(pt, np.asarray(node["pos"], dtype=float),
+                           node.get("extent") or [0.0, 0.0, 0.0])
+        assert gap >= 0.19 - 1e-9
 
 
 def test_invalid_plan_retries_with_error_text(monkeypatch):

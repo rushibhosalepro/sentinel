@@ -62,6 +62,8 @@ class PrimState:
     tilt_deg: float = 0.0  # hand fingertip-axis angle from straight down
     speed: str = "normal"
     stopped: bool = False
+    tilt_cache: dict = field(default_factory=dict)  # round(deg, 1) -> qpos
+    tilt_last_q: np.ndarray | None = None  # config when the last tilt ended
 
 
 def _hand_pose(model: mujoco.MjModel, data: mujoco.MjData):
@@ -130,14 +132,18 @@ def _object_geom_ids(model: mujoco.MjModel, body_name: str) -> list[int]:
 
 
 def move_to(model, data, state, pose, clock, on_sample) -> None:
-    """IK to a [x, y, z, qw, qx, qy, qz] hand pose at the current speed."""
+    """IK to a [x, y, z, qw, qx, qy, qz] hand pose at the current speed.
+
+    Position tolerance is 1 mm: grasps need 6 cm and placements cm, so
+    sub-mm misses are noise, not traps (real traps miss by cm).
+    """
     pose = np.asarray(pose, dtype=float)
     if pose.shape != (7,):
         raise PrimitiveError(f"pose must have 7 elements, got {pose.shape}")
     pos, quat = pose[:3], pose[3:] / np.linalg.norm(pose[3:])
     q0 = data.qpos.copy()
     try:
-        q_target, _ = solve_pose(model, q0, pos, quat)
+        q_target, _ = solve_pose(model, q0, pos, quat, pos_tol=1e-3)
     except IKFailed as e:
         raise PrimitiveError(f"move_to {pos}: {e}") from e
     hand_pos, hand_quat = _hand_pose(model, data)
@@ -227,10 +233,39 @@ def tilt(model, data, state, deg, clock, on_sample) -> None:
 
     Solved in <=30° hops from the current config: a single 70° endpoint
     solve gets seed-trapped at extended reach (same disease as the 180°
-    knife flip, same cure as the retract half-turns).
+    knife flip, same cure as the retract half-turns). Position tolerance
+    is 1 mm (a pour is an orientation task; the angle keeps ORI_TOL).
+
+    Round trips replay: each visited angle records its config, and a
+    tilt back to a visited angle with an undisturbed arm replays the
+    recorded config instead of solving fresh (fresh solves wander ~3 rad
+    and strand the arm in joint limits). Anything between the tilts
+    falls back to a fresh solve.
     """
     deg = float(deg)
     span = deg - state.tilt_deg
+    if abs(span) < 1e-9:
+        on_sample(clock.t)
+        return
+
+    def blend(q0, q1, duration) -> None:
+        def apply(alpha: float) -> None:
+            data.qpos[:] = (1.0 - alpha) * q0 + alpha * q1
+            mujoco.mj_forward(model, data)
+            _drag_held(model, data, state)
+            mujoco.mj_forward(model, data)
+        _rollout(duration, clock, on_sample, apply)
+
+    q_entry = data.qpos.copy()
+    want = round(deg, 1)
+    cache = state.tilt_cache
+    if (want in cache and state.tilt_last_q is not None
+            and np.allclose(q_entry, state.tilt_last_q)):
+        blend(q_entry, cache[want], abs(span) / TILT_RATE)
+        state.tilt_deg = _tilt_of_quat(_hand_pose(model, data)[1])
+        state.tilt_last_q = data.qpos.copy()
+        return
+    cache[round(state.tilt_deg, 1)] = q_entry
     n = max(1, int(np.ceil(abs(span) / 30.0)))
     r_down = quat_wxyz_to_mat(DOWN_QUAT)
     hand_pos, _ = _hand_pose(model, data)
@@ -241,18 +276,14 @@ def tilt(model, data, state, deg, clock, on_sample) -> None:
         q0 = data.qpos.copy()
         try:
             q_target, _ = solve_pose(model, q0, hand_pos,
-                                     mat_to_quat_wxyz(r_tgt))
+                                     mat_to_quat_wxyz(r_tgt),
+                                     pos_tol=1e-3)
         except IKFailed as e:
             raise PrimitiveError(f"tilt({deg}): {e}") from e
-
-        def apply(alpha: float, q0=q0, q_target=q_target) -> None:
-            data.qpos[:] = (1.0 - alpha) * q0 + alpha * q_target
-            mujoco.mj_forward(model, data)
-            _drag_held(model, data, state)
-            mujoco.mj_forward(model, data)
-
-        _rollout(abs(span) / n / TILT_RATE, clock, on_sample, apply)
+        blend(q0, q_target, abs(span) / n / TILT_RATE)
+        cache[round(d, 1)] = data.qpos.copy()
     state.tilt_deg = _tilt_of_quat(_hand_pose(model, data)[1])
+    state.tilt_last_q = data.qpos.copy()
 
 
 def set_speed(model, data, state, speed, clock, on_sample) -> None:

@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.9** (Oct 28, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.10** (Oct 28, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -210,6 +210,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-06** Preflight: run Motion on a copy; detect falls, spills, contact, end-state hazards
 - [x] **C-07** Unit tests for each rule with positive and negative cases
 - [x] **C-08** Sentinel live in `loop.live` (background check, overlay verdict + findings, BLOCK/ASK never move)
+- [x] **C-09** Computed liquid safe spot: `safe_spot.py` grid search (15 cm + 4 cm margin, unoccupied, in workspace, tilt-30 builds) fills the `{safe_spot}` hint template; None → terminal ASK (unfixable, straight to owner)
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
@@ -373,6 +374,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | Oct 28 | Liquid hint steers cup-move to (0.15, 0.25), not vessel-move | Probe-verified: tilt-30 builds there with 4+ cm electronic margins; (0.15, 0.20) is an IK tilt trap |
 | Oct 28 | Defer multi-seed IK; ship verified-geometry demos instead | Single-seed mink traps are point traps; verified spots + error-retry cover the demo envelope |
 | Oct 28 | Hints name exact coordinates; replan note demands exact reuse | "like (x, y)" invited paraphrase; freelanced spots hit IK traps/phone zone and burned all 3 rounds live |
+| Oct 28 | move_to/tilt position tolerance 1 mm (was 0.1 mm) | Sub-mm misses are solver noise, not traps (real traps miss by cm); grasps need 6 cm, placements cm |
+| Oct 28 | tilt round trips replay the recorded config | Fresh tilt solves wander ~3 rad into joint limits and strand the arm; replay restores the pre-tilt config exactly |
 
 ---
 
@@ -390,6 +393,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.7 | Oct 27 | Planner skill hand_to (person) + people in facts |
 | v1.8 | Oct 28 | L-06 follow-ups: retry policy (§9.9), F3/F4 presets, staging move, cup-move hint, demo video |
 | v1.9 | Oct 28 | L-06 reliability: exact-coordinate hint, replan discipline line, place-before-release |
+| v1.10 | Oct 28 | Add C-09 (computed liquid safe spot, ASK when none) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

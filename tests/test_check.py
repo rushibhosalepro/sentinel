@@ -125,20 +125,45 @@ def test_tagged_handover_release_is_suppressed():
     assert v["kind"] == "ALLOW"
 
 
-def test_liquid_near_electronic_blocks_with_feedback():
+def test_liquid_near_electronic_blocks_with_filled_hint():
     m = _motion([[0.6, -0.02, 0.12, DOWN]], ["jug"], speed="slow")
-    v = check(m, _graph(), _rules())
+    g = _graph()
+    g["safe_spot_pour"] = (0.2, 0.15)
+    v = check(m, g, _rules())
     assert v["kind"] == "BLOCK"
     assert v["findings"][0]["rule"] == "liquid_above_electronic"
-    assert v["feedback"] == ["move the cup to (0.15, 0.25) exactly, "
-                             "away from electronics, then carry the jug "
-                             "there and pour into it"]
+    assert v["feedback"] == ["move the cup to (0.20, 0.15) exactly, "
+                             "away from electronics, then pour into it"]
+
+
+def test_liquid_without_spot_asks_owner():
+    m = _motion([[0.6, -0.02, 0.12, DOWN]], ["jug"], speed="slow")
+    g = _graph()
+    g["safe_spot_pour"] = None  # crowded counter: search found nothing
+    v = check(m, g, _rules())
+    assert v["kind"] == "ASK"
+    assert v["findings"][0]["rule"] == "liquid_above_electronic"
+    assert v["why_path"][0]["verdict"] == "ASK"
+    assert v["feedback"] is None  # unfixable: straight to the owner
+
+
+def test_crowded_counter_ask_is_terminal():
+    from loop.feedback import should_replan
+
+    m = _motion([[0.6, -0.02, 0.12, DOWN]], ["jug"], speed="slow")
+    g = _graph()
+    g["safe_spot_pour"] = None
+    v = check(m, g, _rules())
+    assert v["kind"] == "ASK"
+    assert should_replan(v, 1) is False
 
 
 def test_tilt_branch_fires_without_liquid():
     grips = [[0.15, 0.2, 0.10, DOWN], [0.6, -0.02, 0.18, DOWN]]
     m = _motion(grips, ["cup", "cup"], speed="slow", tilt=[0.0, 70.0])
-    v = check(m, _graph(), _rules())
+    g = _graph()
+    g["safe_spot_pour"] = (0.2, 0.15)
+    v = check(m, g, _rules())
     assert v["kind"] == "BLOCK"
     assert "tilted 70" in v["findings"][0]["detail"]
 
