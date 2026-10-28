@@ -41,6 +41,8 @@ def format_replan_note(verdict: dict, attempt: int) -> str:
     lines.append("You must satisfy all of these constraints:")
     for c in constraints_for(verdict):
         lines.append(f"- {c}")
+    lines.append("Use any coordinates in the constraints EXACTLY as written;"
+                 " nearby guesses land in IK traps or hazard zones.")
     return "\n".join(lines)
 
 

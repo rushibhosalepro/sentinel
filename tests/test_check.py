@@ -130,9 +130,9 @@ def test_liquid_near_electronic_blocks_with_feedback():
     v = check(m, _graph(), _rules())
     assert v["kind"] == "BLOCK"
     assert v["findings"][0]["rule"] == "liquid_above_electronic"
-    assert v["feedback"] == ["move the cup to a clear spot like "
-                             "(0.15, 0.25), away from electronics, then "
-                             "carry the jug there and pour into it"]
+    assert v["feedback"] == ["move the cup to (0.15, 0.25) exactly, "
+                             "away from electronics, then carry the jug "
+                             "there and pour into it"]
 
 
 def test_tilt_branch_fires_without_liquid():

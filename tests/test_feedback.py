@@ -61,6 +61,7 @@ def test_replan_note_carries_evidence_and_constraints():
     assert "detail for sharp_fast_near_person" in note
     assert "[sharp_fast_near_person]" in note
     assert "slow within 30 cm of a person" in note
+    assert "EXACTLY as written" in note
 
 
 def test_error_note_carries_error_text():

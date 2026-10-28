@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.8** (Oct 28, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.9** (Oct 28, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -372,6 +372,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | Oct 28 | Staging point → (0.25, 0.05, 0.45) | Old staging sat 14 cm off the laptop edge, inside the 15 cm liquid zone, so every staged jug carry soft-BLOCKed |
 | Oct 28 | Liquid hint steers cup-move to (0.15, 0.25), not vessel-move | Probe-verified: tilt-30 builds there with 4+ cm electronic margins; (0.15, 0.20) is an IK tilt trap |
 | Oct 28 | Defer multi-seed IK; ship verified-geometry demos instead | Single-seed mink traps are point traps; verified spots + error-retry cover the demo envelope |
+| Oct 28 | Hints name exact coordinates; replan note demands exact reuse | "like (x, y)" invited paraphrase; freelanced spots hit IK traps/phone zone and burned all 3 rounds live |
 
 ---
 
@@ -388,6 +389,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.6 | Oct 27 | Motion gains sample_steps (per-sample step ids) |
 | v1.7 | Oct 27 | Planner skill hand_to (person) + people in facts |
 | v1.8 | Oct 28 | L-06 follow-ups: retry policy (§9.9), F3/F4 presets, staging move, cup-move hint, demo video |
+| v1.9 | Oct 28 | L-06 reliability: exact-coordinate hint, replan discipline line, place-before-release |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
