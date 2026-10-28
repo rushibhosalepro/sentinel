@@ -31,6 +31,8 @@ import numpy as np
 
 from graph.scene_graph import load_props
 from loop.handover import build_execution_script, step_handover
+from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
+                           format_replan_note, should_replan)
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
 from sentinel.graph_view import graph_snapshot
@@ -190,38 +192,53 @@ def _restore(model, data, home: dict, person: dict) -> None:
 
 
 def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
-    """Background thread: plan + dry-run the script off a snapshot."""
+    """Background thread: propose -> motion -> check -> replan (L-06).
+
+    ASK verdicts with fixable feedback replan (max 3 rounds); BLOCK and
+    HALT are terminal (no retries, no explanation).
+    """
     while True:
         job = jobs.get()
         if job is None:
             return
-        try:
-            content = plan_instruction(job["instruction"], job["facts"])
-        except Exception as e:  # noqa: BLE001 - reported, never raised
-            results.put({"gen": job["gen"],
-                         "error": f"planner error: {e}"})
-            continue
-        steps, err = plan_from_content(content, job["valid_ids"],
-                                       job["valid_people"])
-        if err is not None:
-            results.put({"gen": job["gen"],
-                         "error": f"invalid plan: {err}"})
-            continue
-        script, err = build_execution_script(
-            model, job["data"], steps, job["home_pos"], job["home_quat"],
-            job["instruction"])
-        if err is not None:
-            results.put({"gen": job["gen"], "error": err})
-            continue
-        graph = graph_snapshot(model, job["data"], job["props"])
-        try:
-            verdict = check(script["motion"], graph)
-        except Exception as e:  # noqa: BLE001 - reported, never raised
-            results.put({"gen": job["gen"],
-                         "error": f"Sentinel error: {e}"})
-            continue
-        results.put({"gen": job["gen"], "steps": steps, "script": script,
-                     "verdict": verdict})
+        note = None
+        rounds = 0
+        while True:  # replan loop
+            try:
+                content = plan_instruction(job["instruction"], job["facts"],
+                                           note=note)
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                results.put({"gen": job["gen"],
+                             "error": f"planner error: {e}"})
+                break
+            steps, err = plan_from_content(content, job["valid_ids"],
+                                           job["valid_people"])
+            if err is not None:
+                results.put({"gen": job["gen"],
+                             "error": f"invalid plan: {err}"})
+                break
+            script, err = build_execution_script(
+                model, job["data"], steps, job["home_pos"],
+                job["home_quat"], job["instruction"])
+            if err is not None:
+                results.put({"gen": job["gen"], "error": err})
+                break
+            graph = graph_snapshot(model, job["data"], job["props"])
+            try:
+                verdict = check(script["motion"], graph)
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                results.put({"gen": job["gen"],
+                             "error": f"Sentinel error: {e}"})
+                break
+            if not should_replan(verdict, rounds):
+                results.put({"gen": job["gen"], "steps": steps,
+                             "script": script, "verdict": verdict,
+                             "rounds": rounds})
+                break
+            rounds += 1
+            note = format_replan_note(verdict, rounds)
+            print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: "
+                  f"{constraints_for(verdict)}")
 
 
 def _clean_line(line: str) -> str:
@@ -472,6 +489,8 @@ def main() -> None:
                               preview_until=now + PREVIEW_T)
                     _print_plan(res["steps"])
                     print(_motion_summary(res["script"]["motion"]))
+                    if res.get("rounds"):
+                        print(f"(after {res['rounds']} replan round(s))")
                     verdict = res["verdict"]
                     for f in verdict["findings"]:
                         print(f"  ! {f['rule']}: {f['detail']}")
