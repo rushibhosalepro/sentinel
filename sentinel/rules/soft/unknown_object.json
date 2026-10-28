@@ -1,0 +1,1 @@
+{"constraint_hint":"use an object from the scene graph","fixable":true,"hard":false,"id":"unknown_object","learned_from":[],"origin":"handwritten","reason":"A plan target that is not in props, or a perception target below confidence.","unless":{},"verdict":"ASK","version":1,"when":{"any":[{"target_low_confidence":{"below":0.5}},{"target_unknown":true}]}}

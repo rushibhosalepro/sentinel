@@ -1,0 +1,1 @@
+{"fixable":false,"hard":true,"id":"sharp_toward_person","learned_from":[],"origin":"handwritten","reason":"A held sharp object's blade tip within 25 cm of a person while the blade points toward them.","unless":{},"verdict":"BLOCK","version":1,"when":{"blade_toward_person":{"within_cm":25.0},"held_property":["sharp"]},"constraint_hint":""}
