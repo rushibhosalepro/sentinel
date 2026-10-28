@@ -52,4 +52,4 @@ def test_expected_rule_ids():
     assert ids == {"sharp_toward_person", "release_near_person_in_air",
                    "sharp_fast_near_person", "liquid_above_electronic",
                    "restricted_item", "unknown_object",
-                   "scene_text_provenance"}
+                   "scene_text_provenance", "person_in_path"}

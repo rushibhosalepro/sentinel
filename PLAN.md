@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.10** (Oct 28, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.11** (Oct 28, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -223,7 +223,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **L-06** Orchestrator: propose → motion → check → feedback → replan (≤ 3) → ASK / BLOCK / execute
   - [x] retry policy (§9.9): ASK + SOFT-BLOCK with fixable feedback, invalid plans, build errors; HARD findings never retry; round trace on overlay
   - [x] demo triggers: F3 cup-next-to-laptop / F4 default presets; F3 pour BLOCKs (soft) → replans (cup to (0.15, 0.25)) → ALLOWs (`out/demo_replan.mp4`)
-- [ ] **L-07** Live monitor: re-check at perception rate → HALT → replan from new state
+- [x] **L-07** Live monitor: re-check at perception rate → HALT → replan from new state (100 ms `person_in_path`, freeze, clear-1s, fresh-plan replan; F6 demo trigger)
 - **Done when:** "Give me the knife" ends with a handle-first hand-over **without** owner input, and the sticky note is BLOCKed with no retries.
 
 ### Phase 5: Dashboard (Nov 1)
@@ -320,6 +320,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 7. **Freeze benchmark labels before running.** Keep the first run and the failures.
 8. **Every number in the README comes from a script in `bench/`.**
 9. **Retry policy:** retry ASK and SOFT-BLOCK verdicts with fixable feedback, plus invalid plans and build errors (error text as feedback). NEVER retry a verdict containing any HARD finding. Max 3 rounds.
+10. **HALT policy (L-07):** a live HALT freezes the arm, waits for 1 s clear, then takes a FRESH plan from the frozen state (no feedback from the HALT itself — hard findings never teach). The replan consumes a round under the same 3-round cap. Expected handover contact (at/after offer) suppresses the monitor.
 
 ---
 
@@ -376,6 +377,9 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | Oct 28 | Hints name exact coordinates; replan note demands exact reuse | "like (x, y)" invited paraphrase; freelanced spots hit IK traps/phone zone and burned all 3 rounds live |
 | Oct 28 | move_to/tilt position tolerance 1 mm (was 0.1 mm) | Sub-mm misses are solver noise, not traps (real traps miss by cm); grasps need 6 cm, placements cm |
 | Oct 28 | tilt round trips replay the recorded config | Fresh tilt solves wander ~3 rad into joint limits and strand the arm; replay restores the pre-tilt config exactly |
+| Oct 28 | Live rules are a `live` scope in the rulebook, skipped by check() | One rulebook, two evaluators: static pre-check vs live monitor; HALT verdicts never feed the planner |
+| Oct 28 | F6 tracks the live gripper, then auto-retreats | Guarantees a mid-carry intercept for the HALT demo regardless of plan shape; retreat unblocks the 1 s clear |
+| Oct 28 | Monitor suppressed during expected handover contact | Post-offer hand approach is the task, not an intrusion; intrusion there is a known blind spot |
 
 ---
 
@@ -394,6 +398,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.8 | Oct 28 | L-06 follow-ups: retry policy (§9.9), F3/F4 presets, staging move, cup-move hint, demo video |
 | v1.9 | Oct 28 | L-06 reliability: exact-coordinate hint, replan discipline line, place-before-release |
 | v1.10 | Oct 28 | Add C-09 (computed liquid safe spot, ASK when none) |
+| v1.11 | Oct 28 | L-07 live HALT monitor (person_in_path, freeze, clear-1s, replan) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

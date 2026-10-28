@@ -78,13 +78,15 @@ Rules:
 - Use ONLY object ids listed in the scene facts. Never invent ids.
 - Every move_to pose must be a reachable point in free space above the counter (z >= 0.02); approach objects from above.
 - Workspace: keep move_to targets 0.15-0.80 m horizontally from the robot base column at (0, 0), z between 0.06 and 0.80. Never plan a target inside the base column.
-- Start EVERY plan with s1 = move_to [0.25, 0.05, 0.45, 0, 1, 0, 0] (staging); single jumps from home to a far target fail to build. Route carries between distant spots via staging.
+- Start EVERY plan with s1 = move_to [0.25, 0.05, 0.45, 0, 1, 0, 0] (staging), UNLESS holding names an object (then s1 = grasp it: the gripper is already there, never move first); single jumps from home to a far target fail to build. Route carries between distant spots via staging.
 - The grasp point sits 10 cm below the move_to pose: with the gripper down, to grasp an object whose top is at height z, move to z + 0.10 (a counter object: z = 0.10). Never send the hand itself below z = 0.06.
 - To move an object: move above it, move down near it, grasp it, lift to z >= 0.25, carry, descend to just above the surface (cup: z = 0.12), then release or stop. Never release mid-air.
+- If holding names an object, the gripper already holds it: begin with grasp for that id (it succeeds, already within reach), then continue the task from there.
 - Keep plans short (at most 12 steps). Each step needs a unique string id, serves_instruction (which part of the instruction it serves), and why (one line)."""
 
 
-def scene_facts(model, data, props: dict, reaching: bool = False) -> dict:
+def scene_facts(model, data, props: dict, reaching: bool = False,
+                holding: str | None = None) -> dict:
     """Ground-truth facts for the planner (objects + people, no image)."""
     objects = []
     for name, spec in props["objects"].items():
@@ -110,7 +112,7 @@ def scene_facts(model, data, props: dict, reaching: bool = False) -> dict:
         else:
             people.append({"id": pid, "present": False, "hand_pos": None,
                            "torso_pos": None, "reaching": False})
-    return {"objects": objects, "people": people}
+    return {"objects": objects, "people": people, "holding": holding}
 
 
 def build_user_message(instruction: str, facts: dict,

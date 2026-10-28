@@ -158,6 +158,15 @@ def test_crowded_counter_ask_is_terminal():
     assert should_replan(v, 1) is False
 
 
+def test_live_scope_rule_skipped_by_check():
+    hand = (0.35, -0.18, 0.30)
+    m = _motion([[*hand, DOWN]], ["apple"], speed="slow")
+    v = check(m, _graph(hand=hand), _rules())
+    assert "person_in_path" not in {f["rule"] for f in v["findings"]}
+    assert "person_in_path" not in {w["rule"] for w in v["why_path"]}
+    assert v["kind"] != "HALT"
+
+
 def test_tilt_branch_fires_without_liquid():
     grips = [[0.15, 0.2, 0.10, DOWN], [0.6, -0.02, 0.18, DOWN]]
     m = _motion(grips, ["cup", "cup"], speed="slow", tilt=[0.0, 70.0])

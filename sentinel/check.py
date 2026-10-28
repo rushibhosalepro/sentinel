@@ -175,12 +175,24 @@ MOTION_PREDS = {"target_unknown": _p_target_unknown,
                 "derived_from_scene_text": _p_derived_from_scene_text}
 
 
+def _p_person_in_path(*args):
+    raise AssertionError("live-scoped rule evaluated by check()")
+
+
+# Live scope: evaluated by loop/monitor.py during execution against live
+# sim state, never by check(). Registered here so load_rulebook accepts
+# the predicate (fail-closed on typos is preserved).
+LIVE_PREDS = {"person_in_path": _p_person_in_path}
+
+
 def _rule_scope(rule) -> str:
     keys = set()
     for clause in (rule["when"], rule["unless"]):
         keys |= set(clause) - {"any"}
         for sub in clause.get("any", []):
             keys |= set(sub) - {"any"}
+    if keys & set(LIVE_PREDS):
+        return "live"
     if keys & set(EVENT_PREDS):
         return "event"
     if keys & set(MOTION_PREDS):
@@ -224,7 +236,8 @@ def load_rulebook(path=None) -> list[dict]:
             names = set(clause) - {"any"}
             for sub in clause.get("any", []):
                 names |= set(sub) - {"any"}
-            known = set(SAMPLE_PREDS) | set(EVENT_PREDS) | set(MOTION_PREDS)
+            known = (set(SAMPLE_PREDS) | set(EVENT_PREDS)
+                     | set(MOTION_PREDS) | set(LIVE_PREDS))
             bad = names - known
             if bad:
                 raise ValueError(f"{file.name}: unknown predicate(s) "
@@ -285,6 +298,8 @@ def check(motion, graph, rules=None) -> dict:
     findings = []
     for rule in rules:
         scope = _rule_scope(rule)
+        if scope == "live":
+            continue  # loop/monitor.py evaluates these during execution
         if scope == "sample":
             table, items = SAMPLE_PREDS, range(len(motion["t"]))
             stamp = lambda i: (motion, graph, i)  # noqa: E731

@@ -34,11 +34,13 @@ from loop.handover import build_execution_script, step_handover
 from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
                            format_error_note, format_replan_note,
                            should_replan)
+from loop.monitor import CLEAR_S, MONITOR_DT_S, check_halt, rule_params
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
 from sentinel.graph_view import graph_snapshot
 from sim.primitives import free_qposadr
-from sim.human import HANDOVER_HOVER, park_pos, reach_to_counter
+from sim.human import (HANDOVER_HOVER, park_pos, reach_to_counter,
+                       step_f6)
 from sim.play import HAND_BODY, REACH_DURATION, drag_with_hand
 from sim.world import load_scene
 
@@ -47,6 +49,7 @@ KEY_F2 = 291
 KEY_F3 = 292
 KEY_F4 = 293
 KEY_F5 = 294
+KEY_F6 = 295
 KEY_ESC = 256
 
 FPS = 60
@@ -128,6 +131,15 @@ def _overlay_text(st: dict) -> str:
     elif phase == "executing":
         n = len(st["script"]) if st["script"] else 0
         lines.append(f"executing... (segment {st['seg_i'] + 1}/{n})")
+    elif phase == "halt":
+        h = st.get("halt") or {}
+        lines.append(f"HALT: person_in_path "
+                     f"({h.get('dist', 0.0) * 100:.0f} cm)")
+        if h.get("clear_since") is not None:
+            lines.append(f"  clear {h.get('clear_for', 0.0):.1f} s / "
+                         f"{CLEAR_S:.0f} s")
+        else:
+            lines.append("  waiting for clear...")
     elif phase == "done":
         lines.append("Done")
     elif phase == "error":
@@ -175,13 +187,19 @@ def _motion_summary(motion: dict) -> str:
             f"{len(motion['end_state'])} end relations")
 
 
-def _step_person(model, data, person: dict) -> None:
+def _step_person(model, data, person: dict, now: float | None = None,
+               dt: float = 0.0) -> None:
     if not person["active"]:
         return
-    elapsed = time.perf_counter() - person["t0"]
-    reach_to_counter(model, data, elapsed, 0.0, REACH_DURATION,
-                     person["target"], face=person["face"],
-                     origin=person["origin"])
+    now = time.perf_counter() if now is None else now
+    if person.get("f6") is not None:
+        if step_f6(model, data, person["f6"], dt):
+            person.update(active=False, f6=None)
+    else:
+        elapsed = now - person["t0"]
+        reach_to_counter(model, data, elapsed, 0.0, REACH_DURATION,
+                         person["target"], face=person["face"],
+                         origin=person["origin"])
     if person["carrying"] is not None:
         drag_with_hand(model, data, person["carrying"]["obj"],
                        person["carrying"]["offset"])
@@ -193,7 +211,7 @@ def _restore(model, data, home: dict, person: dict) -> None:
     data.mocap_quat[:] = home["mocap_quat"]
     data.time = 0.0
     person.update(active=False, target=HANDOVER_HOVER, face=None,
-                  origin=None, carrying=None)
+                  origin=None, carrying=None, f6=None)
     mujoco.mj_forward(model, data)
 
 
@@ -203,15 +221,16 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
     Retries ASK and SOFT-BLOCK verdicts with fixable feedback, plus
     invalid plans and build errors (error text as feedback); never
     retries a verdict with a hard finding. Max 3 rounds. Records the
-    round trace for the overlay.
+    round trace for the overlay. A job may carry rounds/trace to
+    continue numbering after a HALT replan (fresh plan, no feedback).
     """
     while True:
         job = jobs.get()
         if job is None:
             return
         note = None
-        rounds = 0
-        trace: list[str] = []
+        rounds = job.get("rounds", 0)
+        trace: list[str] = list(job.get("trace", []))
         while True:  # replan loop
             attempt = rounds + 1
             try:
@@ -301,7 +320,8 @@ def _reset_all(viewer, model, data, home, person, st) -> None:
         _draw_orb(viewer, ORB_IDLE)
     st.update(phase="idle", instruction="", steps=None, script=None,
               seg_i=0, motion=None, verdict=None, error=None, current=None,
-              trace=[])
+              trace=[], halt=None, halt_last=0.0, held_now=None,
+              rounds=0)
 
 
 def _random_reach_target() -> np.ndarray:
@@ -325,10 +345,13 @@ def _apply_preset(model, data, home, name: str) -> None:
 
 
 def _run_headless(instruction: str, out_path: str, fps: int = 30,
-                  preset: str | None = None) -> None:
+                  preset: str | None = None,
+                  f6_at: float | None = None) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
-    Runs the same worker (with the L-06 replan loop) as the viewer loop.
+    Runs the same worker (with the L-06 replan loop) as the viewer loop,
+    plus the L-07 HALT monitor on virtual time (person, freeze, clear,
+    replan). f6_at fires the F6 intrusion at that exec time (seconds).
     """
     import imageio.v2 as imageio
     from pathlib import Path
@@ -340,8 +363,11 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     if preset is not None:
         _apply_preset(model, data, None, preset)
         print(f"preset: {preset}")
+    halt_params = rule_params()
     facts = scene_facts(model, data, props)
     hand_id = model.body("hand").id
+    home_pos = data.xpos[hand_id].copy()
+    home_quat = data.xquat[hand_id].copy()
     jobs: queue.Queue = queue.Queue()
     results: queue.Queue = queue.Queue()
     threading.Thread(target=_planner_worker, args=(model, jobs, results),
@@ -349,62 +375,175 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     jobs.put({"gen": 0, "instruction": instruction, "facts": facts,
               "data": data, "valid_ids": set(props["objects"]),
               "valid_people": set(props["people"]), "props": props,
-              "home_pos": data.xpos[hand_id].copy(),
-              "home_quat": data.xquat[hand_id].copy()})
-    res = results.get()
-    jobs.put(None)
-    if "error" in res:
+              "home_pos": home_pos, "home_quat": home_quat})
+
+    def take_result():
+        res = results.get()
+        if "error" in res:
+            if res.get("trace"):
+                print(" -> ".join(res["trace"]))
+            print(f"{res['error']} (not moving)")
+            jobs.put(None)
+            raise SystemExit(1)
+        steps, script = res["steps"], res["script"]
+        verdict = res["verdict"]
+        _print_plan(steps)
+        print(_motion_summary(script["motion"]))
         if res.get("trace"):
             print(" -> ".join(res["trace"]))
-        print(f"{res['error']} (not moving)")
-        raise SystemExit(1)
-    steps, script, verdict = res["steps"], res["script"], res["verdict"]
-    _print_plan(steps)
-    print(_motion_summary(script["motion"]))
-    if res.get("trace"):
-        print(" -> ".join(res["trace"]))
-    for f in verdict["findings"]:
-        print(f"  ! {f['rule']}: {f['detail']}")
-    if verdict["kind"] != "ALLOW":
-        print(f"Sentinel: {verdict['kind']} (not moving)")
-        raise SystemExit(1)
+        for f in verdict["findings"]:
+            print(f"  ! {f['rule']}: {f['detail']}")
+        if verdict["kind"] != "ALLOW":
+            print(f"Sentinel: {verdict['kind']} (not moving)")
+            jobs.put(None)
+            raise SystemExit(1)
+        return steps, script, res["rounds"], list(res.get("trace", []))
+
+    _, script, rounds, trace = take_result()
     dt = 1.0 / fps
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
+              "face": None, "origin": None, "carrying": None, "f6": None}
     takers: list[tuple[str, bool]] = []
+    vnow, last_check = 0.0, -1.0
+    seg_i, seg_k, guard = 0, 0, 0
+    lh, halt, held_now, clear_since = None, None, None, None
+    f6_done = f6_at is None
+    segments = script["segments"]
     try:
         with imageio.get_writer(out, fps=fps, codec="libx264",
                                 quality=8) as writer:
-            for kind, payload in script["segments"]:
-                if kind == "prims":
-                    frames, times = payload["frames"], payload["times"]
-                    n = max(1, int(np.ceil(float(times[-1]) / dt)))
-                    for k in range(n + 1):
-                        tau = min(k * dt, float(times[-1]))
+            while seg_i < len(segments):
+                guard += 1
+                if guard > 20000:
+                    print("headless guard trip")
+                    break
+                kind, payload = segments[seg_i]
+                if kind == "handover" and lh is None:
+                    lh = payload["lh"].fresh(data)
+                    hid0 = model.body(HAND_BODY).id
+                    lh.reach_origin = data.xpos[hid0].copy()
+                    if person.get("f6") is not None:
+                        lh.f6 = person["f6"]
+                        person.update(active=False, f6=None)
+                if not f6_done and vnow >= f6_at:
+                    f6_done = True
+                    if halt is None and kind == "handover" \
+                            and not lh.transferred:
+                        lh.f6 = {}
+                    elif person.get("carrying") is None:
+                        person.update(active=True, t0=vnow, f6={})
+                    print(f"F6 @ t={vnow:.2f}s (grabbing at gripper)")
+                if halt is None:
+                    suppressed = False
+                    if kind == "prims":
+                        frames = payload["frames"]
+                        times, motion = payload["times"], payload["motion"]
+                        dur = float(times[-1])
+                        tau = min(seg_k * dt, dur)
                         idx = min(max(int(np.searchsorted(
                             times, tau, side="right") - 1), 0),
                             len(frames) - 1)
                         data.qpos[:] = frames[idx]
                         mujoco.mj_forward(model, data)
-                        renderer.update_scene(data, camera="demo")
-                        writer.append_data(renderer.render())
-                else:
-                    lh = payload["lh"].fresh(data)
-                    guard = 0
-                    while True:
+                        held_now = motion["held"][idx]
+                        seg_motion, seg_tau = motion, tau
+                        _step_person(model, data, person, vnow, dt)
+                        if seg_k * dt >= dur:
+                            seg_i += 1
+                            seg_k = 0
+                        else:
+                            seg_k += 1
+                    else:
                         _, done = step_handover(lh, dt)
-                        renderer.update_scene(data, camera="demo")
-                        writer.append_data(renderer.render())
-                        guard += 1
-                        if done or guard > 5000:
-                            break
-                    takers.append((lh.obj, lh.transferred))
-                    if not lh.transferred:
-                        print("hand-over not taken")
-                        break
+                        held_now = lh.obj if not lh.transferred else None
+                        seg_motion, seg_tau = lh.motion, lh.tau
+                        suppressed = lh.tau >= lh.t_offer
+                        if done:
+                            takers.append((lh.obj, lh.transferred))
+                            if not lh.transferred:
+                                print("hand-over not taken")
+                                seg_i = len(segments)
+                            else:
+                                seg_i += 1
+                            if lh.f6 is not None \
+                                    and not lh.transferred:
+                                person.update(active=True, f6=lh.f6)
+                            lh = None
+                    if halt_params is not None and not suppressed \
+                            and vnow - last_check >= MONITOR_DT_S:
+                        last_check = vnow
+                        fire, dist, what = check_halt(
+                            model, data, seg_motion, seg_tau, held_now,
+                            props, halt_params)
+                        if fire:
+                            halt = {"tau": seg_tau, "held": held_now,
+                                    "motion": seg_motion}
+                            clear_since = None
+                            entry = (f"HALT person_in_path @ "
+                                     f"t={vnow:.2f}s "
+                                     f"({dist * 100:.0f} cm from {what})")
+                            trace.append(entry)
+                            print(f"HALT: {entry}")
+                else:
+                    if kind == "handover" and lh is not None \
+                            and lh.f6 is not None:
+                        if step_f6(model, data, lh.f6, dt):
+                            lh.f6 = None
+                    _step_person(model, data, person, vnow, dt)
+                    if halt_params is not None \
+                            and vnow - last_check >= MONITOR_DT_S:
+                        last_check = vnow
+                        fire, _, _ = check_halt(
+                            model, data, halt["motion"], halt["tau"],
+                            halt["held"], props, halt_params)
+                        if not fire:
+                            if clear_since is None:
+                                clear_since = vnow
+                            if vnow - clear_since >= CLEAR_S:
+                                if rounds + 1 > MAX_REPLAN_ROUNDS:
+                                    print("HALT: replan budget exhausted "
+                                          "(arm frozen)")
+                                    jobs.put(None)
+                                    raise SystemExit(1)
+                                scratch = mujoco.MjData(model)
+                                mujoco.mj_copyData(scratch, model, data)
+                                facts = scene_facts(
+                                    model, data, props,
+                                    reaching=person["active"],
+                                    holding=halt["held"])
+                                rounds_start = rounds + 1
+                                trace.append(
+                                    f"clear {CLEAR_S:.0f}s -> fresh plan "
+                                    f"(round {rounds_start + 1})")
+                                jobs.put({"gen": 0,
+                                          "instruction": instruction,
+                                          "facts": facts, "data": scratch,
+                                          "valid_ids": set(props["objects"]),
+                                          "valid_people": set(
+                                              props["people"]),
+                                          "props": props,
+                                          "home_pos": home_pos,
+                                          "home_quat": home_quat,
+                                          "rounds": rounds_start,
+                                          "trace": trace})
+                                _, script, rounds, trace = take_result()
+                                segments = script["segments"]
+                                seg_i, seg_k, lh = 0, 0, None
+                                halt, held_now = None, None
+                                clear_since = None
+                                print(f"resumed at t={vnow:.2f}s")
+                        else:
+                            clear_since = None
+                renderer.update_scene(data, camera="demo")
+                writer.append_data(renderer.render())
+                vnow += dt
+                data.time = vnow
     finally:
         renderer.close()
+    jobs.put(None)
     hid = model.body(HAND_BODY).id
     for obj, ok in takers:
         gap = float(np.linalg.norm(
@@ -423,11 +562,18 @@ def main() -> None:
     parser.add_argument("--preset", default=None,
                         choices=["cup_next_to_laptop"],
                         help="headless: stage a scene preset first (F3 live)")
+    parser.add_argument("--f6-at", default=None, type=float,
+                        metavar="SEC",
+                        help="headless: fire the F6 intrusion at SEC exec "
+                        "time (F6 key live)")
     args = parser.parse_args()
     if bool(args.record) != bool(args.instruction):
         parser.error("--record and --instruction go together")
+    if args.f6_at is not None and not args.record:
+        parser.error("--f6-at needs --record")
     if args.record:
-        _run_headless(args.instruction, args.record, preset=args.preset)
+        _run_headless(args.instruction, args.record, preset=args.preset,
+                      f6_at=args.f6_at)
         return
 
     model, data = load_scene("kitchen")
@@ -441,15 +587,19 @@ def main() -> None:
             "hand_pos": data.xpos[hand_id].copy(),
             "hand_quat": data.xquat[hand_id].copy()}
     person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
-              "face": None, "origin": None, "carrying": None}
+              "face": None, "origin": None, "carrying": None, "f6": None}
     flags = {"reach": False, "reset": False, "quit": False, "cam": False,
-             "preset": None}
+             "preset": None, "f6": False}
     st = {"phase": "idle", "instruction": "", "plan_start": 0.0,
           "steps": None, "script": None, "seg_i": 0, "seg_t0": 0.0,
           "motion": None, "verdict": None, "error": None,
           "exec_t0": 0.0, "preview_until": 0.0, "current": None,
           "gen": 0, "cam": "demo", "last_t": 0.0, "queued": 0,
-          "trace": []}
+          "trace": [], "halt": None, "halt_last": 0.0, "held_now": None,
+          "rounds": 0}
+    halt_params = rule_params()
+    if halt_params is None:
+        print("warning: person_in_path rule missing: HALT monitor off")
 
     def key_callback(keycode: int) -> None:
         if keycode == KEY_F1:
@@ -462,6 +612,8 @@ def main() -> None:
             flags["preset"] = "default"
         elif keycode == KEY_F5:
             flags["reset"] = True
+        elif keycode == KEY_F6:
+            flags["f6"] = True
         elif keycode == KEY_ESC:
             flags["quit"] = True
 
@@ -498,9 +650,42 @@ def main() -> None:
                   error=None, current=None)
         with viewer.lock():
             _draw_orb(viewer, ORB_IDLE)
+
+    def _dispatch_halt(now: float) -> None:
+        """Fresh plan from the frozen HALT state (consumes a round)."""
+        if st["rounds"] + 1 > MAX_REPLAN_ROUNDS:
+            st.update(phase="error", halt=None,
+                      error="HALT: replan budget exhausted (arm frozen)")
+            print("HALT: replan budget exhausted (arm frozen)")
+            return
+        with viewer.lock():
+            scratch = mujoco.MjData(model)
+            mujoco.mj_copyData(scratch, model, data)
+            facts = scene_facts(model, data, props,
+                                reaching=person["active"],
+                                holding=st["held_now"])
+        rounds_start = st["rounds"] + 1
+        trace = (st.get("trace") or []) + [
+            f"clear {CLEAR_S:.0f}s -> fresh plan (round "
+            f"{rounds_start + 1})"]
+        jobs.put({"gen": st["gen"], "instruction": st["instruction"],
+                  "facts": facts, "data": scratch,
+                  "valid_ids": valid_ids,
+                  "valid_people": valid_people,
+                  "props": props,
+                  "home_pos": home["hand_pos"],
+                  "home_quat": home["hand_quat"],
+                  "rounds": rounds_start, "trace": trace})
+        st.update(phase="planning", plan_start=now, steps=None,
+                  script=None, seg_i=0, motion=None, verdict=None,
+                  error=None, current=None, halt=None)
+        with viewer.lock():
+            _draw_orb(viewer, ORB_IDLE)
+        print(f"replanning from HALT state (round {rounds_start + 1})")
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
     print("[F3] cup next to laptop  [F4] default scene")
+    print("[F6] person grabs at the gripper (HALT demo)")
     eof = False
     st["last_t"] = time.perf_counter()
     try:
@@ -508,7 +693,8 @@ def main() -> None:
             _draw_orb(viewer, ORB_IDLE)
         while viewer.is_running() and not flags["quit"] and not (
                 eof and st["phase"] not in ("planning", "preview",
-                                            "executing") and not pending):
+                                            "executing", "halt")
+                and not pending):
             now = time.perf_counter()
             wall_dt = now - st["last_t"]
             st["last_t"] = now
@@ -537,6 +723,23 @@ def main() -> None:
                                   target=_random_reach_target(), face=None,
                                   origin=origin)
                 print("person reaching in")
+            if flags["f6"]:
+                flags["f6"] = False
+                if person.get("carrying") is not None:
+                    print("F6 ignored (person carrying)")
+                elif (st["phase"] == "executing" and st["script"]
+                        and st["script"][st["seg_i"]][0] == "handover"):
+                    lh = st["script"][st["seg_i"]][1]["lh"]
+                    if lh.transferred:
+                        print("F6 ignored (already transferred)")
+                    else:
+                        with viewer.lock():
+                            lh.f6 = {}
+                        print("F6: person grabbing at the gripper")
+                else:
+                    with viewer.lock():
+                        person.update(active=True, t0=now, f6={})
+                    print("F6: person grabbing at the gripper")
             try:
                 line = lines.get_nowait()
             except queue.Empty:
@@ -550,7 +753,8 @@ def main() -> None:
                 if text.lower() in ("quit", "exit"):
                     break
                 if text:
-                    if st["phase"] in ("planning", "preview", "executing"):
+                    if st["phase"] in ("planning", "preview", "executing",
+                                       "halt"):
                         pending.append(text)
                         st["queued"] = len(pending)
                         print(f"queued ({len(pending)})")
@@ -572,7 +776,8 @@ def main() -> None:
                               script=res["script"]["segments"],
                               motion=res["script"]["motion"], seg_i=0,
                               preview_until=now + PREVIEW_T,
-                              trace=res.get("trace", []))
+                              trace=res.get("trace", []),
+                              rounds=res["rounds"])
                     _print_plan(res["steps"])
                     print(_motion_summary(res["script"]["motion"]))
                     if res.get("trace"):
@@ -601,6 +806,8 @@ def main() -> None:
                           exec_t0=now)
             if st["phase"] == "executing":
                 kind, payload = st["script"][st["seg_i"]]
+                seg0 = st["seg_i"]
+                seg_motion, seg_tau, suppressed = None, 0.0, False
                 if kind == "prims":
                     tau = now - st["seg_t0"]
                     times, frames = payload["times"], payload["frames"]
@@ -619,11 +826,14 @@ def main() -> None:
                             len(frames) - 1)
                         st["current"] = payload["motion"][
                             "sample_steps"][idx]
+                        st["held_now"] = payload["motion"]["held"][idx]
+                        seg_motion, seg_tau = payload["motion"], tau
                         with viewer.lock():
                             data.qpos[:] = frames[idx]
                             data.time = now - st["exec_t0"]
                             mujoco.mj_forward(model, data)
-                            _step_person(model, data, person)
+                            _step_person(model, data, person, now,
+                                         wall_dt)
                 else:
                     lh = payload["lh"]
                     st["current"] = payload["hid"]
@@ -634,9 +844,18 @@ def main() -> None:
                             lh = payload["lh"] = lh.fresh(data)
                             hid = model.body(HAND_BODY).id
                             lh.reach_origin = data.xpos[hid].copy()
+                            if person.get("f6") is not None:
+                                lh.f6 = person["f6"]
+                                person.update(active=False, f6=None)
                         _, done = step_handover(lh, wall_dt)
                         data.time = now - st["exec_t0"]
+                    st["held_now"] = lh.obj if not lh.transferred else None
+                    seg_motion, seg_tau = lh.motion, lh.tau
+                    suppressed = lh.tau >= lh.t_offer
                     if done:
+                        if lh.f6 is not None and not lh.transferred:
+                            person.update(active=True, f6=lh.f6)
+                            lh.f6 = None
                         with viewer.lock():
                             hand_now = data.xpos[
                                 model.body("human_hand").id].copy()
@@ -659,9 +878,66 @@ def main() -> None:
                         else:
                             st["seg_i"] += 1
                             st["seg_t0"] = now
+                if (st["phase"] == "executing" and seg_motion is not None
+                        and st["seg_i"] == seg0 and not suppressed
+                        and halt_params is not None
+                        and now - st["halt_last"] >= MONITOR_DT_S):
+                    st["halt_last"] = now
+                    try:
+                        fire, dist, what = check_halt(
+                            model, data, seg_motion, seg_tau,
+                            st["held_now"], props, halt_params)
+                    except Exception as e:  # noqa: BLE001 - fail closed
+                        print(f"monitor error (fail-closed HALT): {e}")
+                        fire, dist, what = True, 0.0, "monitor error"
+                    if fire:
+                        exec_t = now - st["exec_t0"]
+                        entry = (f"HALT person_in_path @ "
+                                 f"t={exec_t:.2f}s "
+                                 f"({dist * 100:.0f} cm from {what})")
+                        st["trace"] = (st.get("trace") or []) + [entry]
+                        st.update(phase="halt",
+                                  halt={"tau": seg_tau, "dist": dist,
+                                        "what": what, "clear_since": None,
+                                        "clear_for": 0.0})
+                        print(f"HALT: {entry}")
+                        with viewer.lock():
+                            _draw_orb(viewer, ORB_COLORS["HALT"])
             else:
                 with viewer.lock():
-                    _step_person(model, data, person)
+                    _step_person(model, data, person, now, wall_dt)
+            if st["phase"] == "halt":
+                kind, payload = st["script"][st["seg_i"]]
+                if kind == "handover" \
+                        and payload["lh"].f6 is not None:
+                    with viewer.lock():
+                        if step_f6(model, data, payload["lh"].f6,
+                                   wall_dt):
+                            payload["lh"].f6 = None
+            if st["phase"] == "halt" and halt_params is not None \
+                    and now - st["halt_last"] >= MONITOR_DT_S:
+                st["halt_last"] = now
+                kind, payload = st["script"][st["seg_i"]]
+                seg_motion = payload["motion"] if kind == "prims" \
+                    else payload["lh"].motion
+                try:
+                    fire, _, _ = check_halt(
+                        model, data, seg_motion, st["halt"]["tau"],
+                        st["held_now"], props, halt_params)
+                except Exception as e:  # noqa: BLE001 - fail closed
+                    print(f"monitor error (fail-closed HALT): {e}")
+                    fire = True
+                h = st["halt"]
+                if not fire:
+                    if h["clear_since"] is None:
+                        h["clear_since"] = now
+                    h["clear_for"] = now - h["clear_since"]
+                    if h["clear_for"] >= CLEAR_S:
+                        print(f"clear {CLEAR_S:.0f}s, replanning...")
+                        _dispatch_halt(now)
+                else:
+                    h["clear_since"] = None
+                    h["clear_for"] = 0.0
             if pending and st["phase"] in ("done", "error", "idle"):
                 nxt = pending.popleft()
                 st["queued"] = len(pending)

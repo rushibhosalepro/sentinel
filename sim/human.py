@@ -18,6 +18,8 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
+from sim.ik import GRASP_OFFSET
+
 HAND_BODY = "human_hand"
 TORSO_BODY = "human_torso"
 UPPER_ARM_BODY = "human_upper_arm"
@@ -202,3 +204,33 @@ def retreat_to_park(model, data, t: float, start_t: float = 0.0,
     if origin is None:
         origin = data.mocap_pos[_mocap_id(model)].copy()
     _drive(model, data, origin, park_pos(model), t, start_t, duration)
+
+
+F6_CLOSE_M = 0.12  # stop tracking once this close to the gripper
+F6_TRACK_S = 6.0  # give up the chase after this long (then retreat)
+F6_RETREAT_S = 2.0
+
+
+def step_f6(model, data, f6: dict, dt: float) -> bool:
+    """One intrusion tick: chase the live gripper, then retreat to park.
+
+    `f6` starts as {} at trigger and carries its own elapsed clock, so
+    stepping works on any base (wall dt live, fixed dt headless, frozen
+    segment tau during a HALT). Returns True when finished.
+    """
+    f6["e"] = f6.get("e", 0.0) + max(float(dt), 0.0)
+    e = f6["e"]
+    hid = model.body("hand").id
+    grip = data.xpos[hid] + data.xmat[hid].reshape(3, 3) @ np.array(
+        [0.0, 0.0, GRASP_OFFSET])
+    if f6.get("phase", "track") == "track":
+        reach_to_counter(model, data, e, 0.0, F6_TRACK_S, grip,
+                         origin=None)
+        hand = data.xpos[model.body(HAND_BODY).id]
+        if (float(np.linalg.norm(hand - grip)) < F6_CLOSE_M
+                or e >= F6_TRACK_S):
+            f6.update(phase="retreat", e1=e, origin=hand.copy())
+        return False
+    retreat_to_park(model, data, e, f6["e1"], F6_RETREAT_S,
+                    origin=f6["origin"])
+    return e - f6["e1"] >= F6_RETREAT_S

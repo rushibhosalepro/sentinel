@@ -64,6 +64,14 @@ def test_replan_note_carries_evidence_and_constraints():
     assert "EXACTLY as written" in note
 
 
+def test_halt_never_replans():
+    v = _verdict("HALT", rules=(("person_in_path", True),),
+                 feedback=["person in path"])
+    assert constraints_for(v) == []
+    assert should_replan(v, 0) is False
+    assert should_replan(v, 1) is False
+
+
 def test_error_note_carries_error_text():
     note = format_error_note("step s2: unknown object 'spatula'", 1)
     assert "Attempt 1 failed to build" in note

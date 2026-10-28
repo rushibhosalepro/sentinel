@@ -23,7 +23,7 @@ import mujoco
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from sim.human import reach_to_counter, retreat_to_park
+from sim.human import reach_to_counter, retreat_to_park, step_f6
 from sim.ik import mat_to_quat_wxyz, quat_wxyz_to_mat
 from sim.play import (END_HOLD_T, HAND_BODY, HANDLE_GEOM, HANDOVER_TIMEOUT,
                       KNIFE_BODY, REACH_DURATION, RETREAT_DURATION, ROBOT_HAND,
@@ -74,13 +74,14 @@ class LiveHandover:
     retreat_origin: np.ndarray | None = None
     take_tau: float | None = None
     reported: bool = False
+    f6: dict | None = None  # F6 intrusion state (L-07); None when idle
 
     def fresh(self, data) -> "LiveHandover":
         """Rebind to `data` with pristine runtime state."""
         return dataclasses.replace(
             self, data=data, tau=0.0, transferred=False,
             transfer_offset=None, retreat_origin=None, take_tau=None,
-            reported=False)
+            reported=False, f6=None)
 
 
 def offer_target(gripper_pos, hand_pos) -> np.ndarray:
@@ -215,24 +216,35 @@ def step_handover(lh: LiveHandover, dt: float) -> tuple[str, bool]:
     lh.tau += dt
     tau, model, data = lh.tau, lh.model, lh.data
     hand_id = model.body(HAND_BODY).id
+
+    def drive_person() -> None:
+        if lh.f6 is not None:
+            if step_f6(model, data, lh.f6, dt):
+                lh.f6 = None
+        else:
+            reach_to_counter(model, data, tau, lh.t_offer,
+                             REACH_DURATION, lh.aim, face=lh.aim,
+                             origin=lh.reach_origin)
+
     if not lh.transferred and lh.take_tau is None:
         if tau < lh.t_rel:
             data.qpos[:] = _frame_at(lh.times, lh.frames, tau)
-            reach_to_counter(model, data, tau, lh.t_offer, REACH_DURATION,
-                             lh.aim, face=lh.aim, origin=lh.reach_origin)
+            drive_person()
             return "offer", False
         data.qpos[:] = lh.frames[lh.pre_idx]  # keep holding
-        reach_to_counter(model, data, tau, lh.t_offer, REACH_DURATION,
-                         lh.aim, face=lh.aim, origin=lh.reach_origin)
+        drive_person()
         gap = float(np.linalg.norm(data.xpos[hand_id] - lh.aim))
         if gap < TAKE_DIST:
             lh.transfer_offset = attach_to_hand(model, data, lh.obj)
             lh.retreat_origin = data.xpos[hand_id].copy()
             lh.transferred = True
             lh.take_tau = tau
+            lh.f6 = None
             if lh.verbose:
                 print(f"hand-over taken at t={tau:.2f} s")
         elif tau - lh.t_rel >= lh.timeout:
+            if lh.f6 is not None:
+                drive_person()
             if lh.verbose and not lh.reported:
                 lh.reported = True
                 print("hand-over not taken (hand never within 5 cm)")
