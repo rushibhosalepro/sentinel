@@ -67,7 +67,7 @@ def grasp_index(motion, obj: str) -> int | None:
 def grasp_offset(motion, graph, obj: str) -> np.ndarray | None:
     """T_grip^-1 @ T_obj at the grasp sample (None if never held)."""
     g = grasp_index(motion, obj)
-    if g is None:
+    if g is None or obj not in graph["objects"]:
         return None
     node = graph["objects"][obj]
     return np.linalg.inv(_grip_se3(motion, g)) @ _se3(node["pos"],
@@ -123,7 +123,7 @@ def measure_blade(motion, graph, i: int) -> dict | None:
     `toward` is the S-07 discriminator: the tip is closer than the handle.
     """
     geo = knife_geometry(motion, graph, i)
-    if geo is None:
+    if geo is None or geo["tip"] is None or geo["handle"] is None:
         return None
     t = motion["t"][i]
     pid, part, tip_m = nearest_person_part(geo["tip"], graph, t)
@@ -137,8 +137,9 @@ def _held_keypoints(motion, graph, obj: str, i: int) -> list:
     pts = [carried_point(motion, graph, obj, i)]
     if obj == KNIFE_BODY:
         geo = knife_geometry(motion, graph, i)
-        pts += [geo["tip"], geo["handle"]]
-    return pts
+        if geo is not None:
+            pts += [geo["tip"], geo["handle"]]
+    return [p for p in pts if p is not None]
 
 
 def measure_held(motion, graph, i: int) -> dict | None:
@@ -162,6 +163,8 @@ def measure_held_electronic(motion, graph, i: int) -> dict | None:
     if obj is None:
         return None
     pt = carried_point(motion, graph, obj, i)
+    if pt is None:
+        return None
     best = (None, float("inf"))
     for eid, node in graph["objects"].items():
         if "electronic" not in node.get("properties", []):
@@ -189,6 +192,8 @@ def release_events(motion, graph) -> list[dict]:
 
 def release_into_hand(ev: dict, graph) -> tuple[bool, str | None]:
     """(into_hand, person): tagged hand_to release, or a live hand nearby."""
+    if ev["pos"] is None:
+        return False, None
     if ev["step_id"].endswith(HANDOVER_RELEASE_TAG):
         pid, _, _ = nearest_person_part(ev["pos"], graph, ev["t"])
         return True, pid
@@ -198,8 +203,10 @@ def release_into_hand(ev: dict, graph) -> tuple[bool, str | None]:
     return False, None
 
 
-def recipient_authorised(graph, pid: str) -> bool:
+def recipient_authorised(graph, pid: str | None) -> bool:
     """True when the person's scopes approve any handover."""
+    if pid is None or pid not in graph["people"]:
+        return False
     return "all" in graph["people"][pid].get("authorised", [])
 
 
