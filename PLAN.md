@@ -207,7 +207,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-03** `check()` → Verdict with findings + Why path
 - [x] **C-04** Uncertainty margins (clearance grows with low confidence / speed)
 - [x] **C-05** Provenance check (owner vs SceneText → BLOCK)
-- [ ] **C-06** Preflight: run Motion on a copy; detect falls, spills, contact, end-state hazards
+- [x] **C-06** Preflight: run Motion on a copy; detect falls, spills, contact, end-state hazards
 - [ ] **C-07** Unit tests for each rule with positive and negative cases
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
