@@ -218,7 +218,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [ ] **L-02** Privileged planner: owner text + graph facts → PlanStep[] (structured output)
 - [ ] **L-03** Quarantined reader: image → SceneText nodes only
 - [ ] **L-04** Naive planner (sees image) for the baseline
-- [ ] **L-05** `feedback.py`: fixable findings → constraints ("blade must point away", "≥ 25 cm", "slow within 30 cm")
+- [x] **L-05** `feedback.py`: fixable findings → constraints ("blade must point away", "≥ 25 cm", "slow within 30 cm")
 - [ ] **L-06** Orchestrator: propose → motion → check → feedback → replan (≤ 3) → ASK / BLOCK / execute
 - [ ] **L-07** Live monitor: re-check at perception rate → HALT → replan from new state
 - **Done when:** "Give me the knife" ends with a handle-first hand-over **without** owner input, and the sticky note is BLOCKed with no retries.

@@ -112,14 +112,19 @@ def scene_facts(model, data, props: dict, reaching: bool = False) -> dict:
     return {"objects": objects, "people": people}
 
 
-def build_user_message(instruction: str, facts: dict) -> str:
-    return (f"Instruction: {instruction}\n\n"
-            f"Scene facts (ground truth, no image):\n{json.dumps(facts)}")
+def build_user_message(instruction: str, facts: dict,
+                       note: str | None = None) -> str:
+    msg = (f"Instruction: {instruction}\n\n"
+           f"Scene facts (ground truth, no image):\n{json.dumps(facts)}")
+    if note:
+        msg += f"\n\n{note}"
+    return msg
 
 
 def plan_instruction(instruction: str, facts: dict,
                      model: str | None = None,
-                     effort: str | None = None) -> str:
+                     effort: str | None = None,
+                     note: str | None = None) -> str:
     """Call the planner model; returns the raw JSON content string."""
     base_url, api_key = load_settings()
     model = model or os.environ.get("PLANNER_MODEL", DEFAULT_MODEL)
@@ -135,7 +140,7 @@ def plan_instruction(instruction: str, facts: dict,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",
-             "content": build_user_message(instruction, facts)},
+             "content": build_user_message(instruction, facts, note)},
         ],
         response_format={
             "type": "json_schema",
