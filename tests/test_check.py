@@ -111,8 +111,8 @@ def test_release_in_air_blocks_and_beats_ask():
     assert v["why_path"][1]["rule"] == "sharp_toward_person"
     assert v["why_path"][2]["rule"] == "sharp_fast_near_person"
     assert "mid-air" in v["findings"][0]["detail"]
-    # The soft ASK finding still contributes its hint.
-    assert v["feedback"] == ["slow within 30 cm of a person"]
+    # Hard BLOCK verdict: no feedback, despite the soft ASK alongside.
+    assert v["feedback"] is None
 
 
 def test_tagged_handover_release_is_suppressed():

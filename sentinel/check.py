@@ -19,9 +19,9 @@ RULES_DIR = Path(__file__).parent / "rules"
 
 SEVERITY = {"ALLOW": 0, "ASK": 1, "HALT": 2, "BLOCK": 3}
 
-# A release higher than this above the counter (top z = 0) is a drop, not a
-# placement: placements release at ~10 cm, the trick releases at 30 cm.
-RELEASE_AIR_Z_M = 0.20
+# A release higher than this above the counter (top z = 0) is a drop, not
+# a placement: placements release at ~5 cm, the trick releases at 20 cm.
+RELEASE_AIR_Z_M = 0.15
 
 
 def _props(graph, obj) -> list:
@@ -330,8 +330,12 @@ def check(motion, graph=None, rules=None) -> dict:
                      key=lambda f: SEVERITY[f["_verdict"]], reverse=True)
     why_path = [{"rule": f["rule"], "verdict": f["_verdict"], "t": f["t"]}
                 for f in ordered]
+    # Feedback explains the verdict: hints from soft fixable findings AT
+    # the winning severity. A hard BLOCK therefore returns NO feedback,
+    # even when a soft ASK fired alongside it.
     hints = [f["_hint"] for f in ordered
-             if not f["_hard"] and f["_fixable"] and f["_hint"]]
+             if f["_verdict"] == kind and not f["_hard"]
+             and f["_fixable"] and f["_hint"]]
     feedback = sorted(set(hints)) or None
     for f in findings:
         for k in ("_verdict", "_hard", "_hint", "_fixable"):
