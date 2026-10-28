@@ -231,7 +231,7 @@ def test_owner_instruction_provenance_passes():
     assert v["kind"] == "ALLOW"
 
 
-def test_stub_passthrough_without_graph():
+def test_graph_is_required():
     m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"])
-    v = check(m)
-    assert v["kind"] == "ALLOW" and v["stub"] is True
+    with pytest.raises(TypeError):
+        check(m)

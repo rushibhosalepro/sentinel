@@ -209,6 +209,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-05** Provenance check (owner vs SceneText → BLOCK)
 - [x] **C-06** Preflight: run Motion on a copy; detect falls, spills, contact, end-state hazards
 - [x] **C-07** Unit tests for each rule with positive and negative cases
+- [x] **C-08** Sentinel live in `loop.live` (background check, overlay verdict + findings, BLOCK/ASK never move)
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)

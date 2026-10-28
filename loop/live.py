@@ -32,6 +32,7 @@ from graph.scene_graph import load_props
 from loop.handover import build_execution_script, step_handover
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
+from sentinel.graph_view import graph_snapshot
 from sim.human import HANDOVER_HOVER, park_pos, reach_to_counter
 from sim.play import HAND_BODY, REACH_DURATION, drag_with_hand
 from sim.world import load_scene
@@ -140,8 +141,9 @@ def _overlay_text(st: dict) -> str:
         if len(ids) > 7:
             lines.append(f"  ... +{len(ids) - 7} more")
     if st["verdict"] is not None:
-        stub = " (stub)" if st["verdict"].get("stub") else ""
-        lines.append(f"Sentinel: {st['verdict']['kind']}{stub}")
+        lines.append(f"Sentinel: {st['verdict']['kind']}")
+        for f in st["verdict"]["findings"][:3]:
+            lines.append(f"  ! {f['rule']}: {f['detail']}"[:64])
     return "\n".join(lines)
 
 
@@ -208,7 +210,15 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         if err is not None:
             results.put({"gen": job["gen"], "error": err})
             continue
-        results.put({"gen": job["gen"], "steps": steps, "script": script})
+        graph = graph_snapshot(model, job["data"], job["props"])
+        try:
+            verdict = check(script["motion"], graph)
+        except Exception as e:  # noqa: BLE001 - reported, never raised
+            results.put({"gen": job["gen"],
+                         "error": f"Sentinel error: {e}"})
+            continue
+        results.put({"gen": job["gen"], "steps": steps, "script": script,
+                     "verdict": verdict})
 
 
 def _reader(lines: queue.Queue) -> None:
@@ -260,9 +270,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30) -> None:
         print(f"{err} (not moving)")
         raise SystemExit(1)
     print(_motion_summary(script["motion"]))
-    verdict = check(script["motion"])
-    print(f"Sentinel: {verdict['kind']}")
+    verdict = check(script["motion"],
+                    graph_snapshot(model, data, props))
+    for f in verdict["findings"]:
+        print(f"  ! {f['rule']}: {f['detail']}")
     if verdict["kind"] != "ALLOW":
+        print(f"Sentinel: {verdict['kind']} (not moving)")
         raise SystemExit(1)
     dt = 1.0 / fps
     out = Path(out_path)
@@ -422,6 +435,7 @@ def main() -> None:
                                   "facts": facts, "data": scratch,
                                   "valid_ids": valid_ids,
                                   "valid_people": valid_people,
+                                  "props": props,
                                   "home_pos": home["hand_pos"],
                                   "home_quat": home["hand_quat"]})
                         st.update(phase="planning", instruction=text,
@@ -445,28 +459,23 @@ def main() -> None:
                               preview_until=now + PREVIEW_T)
                     _print_plan(res["steps"])
                     print(_motion_summary(res["script"]["motion"]))
-                    try:
-                        verdict = check(res["script"]["motion"])
-                    except Exception as e:  # noqa: BLE001 - stub never raises
-                        st.update(phase="error",
-                                  error=f"Sentinel error: {e}")
-                        print(f"Sentinel error: {e} (not moving)")
-                        verdict = None
-                    if verdict is not None:
-                        if verdict["kind"] != "ALLOW":
-                            st.update(phase="error", verdict=verdict,
-                                      error=f"Sentinel: {verdict['kind']} "
-                                            f"(not moving)")
-                            print(f"Sentinel: {verdict['kind']} (not moving)")
-                        else:
-                            st["verdict"] = verdict
-                            with viewer.lock():
-                                _draw_orb(
-                                    viewer,
-                                    ORB_COLORS.get(verdict["kind"], ORB_IDLE))
-                                _show_preview(viewer, model, data,
-                                              res["script"]["motion"],
-                                              res["steps"])
+                    verdict = res["verdict"]
+                    for f in verdict["findings"]:
+                        print(f"  ! {f['rule']}: {f['detail']}")
+                    if verdict["kind"] != "ALLOW":
+                        st.update(phase="error", verdict=verdict,
+                                  error=f"Sentinel: {verdict['kind']} "
+                                        f"(not moving)")
+                        print(f"Sentinel: {verdict['kind']} (not moving)")
+                    else:
+                        st["verdict"] = verdict
+                        with viewer.lock():
+                            _draw_orb(
+                                viewer,
+                                ORB_COLORS.get(verdict["kind"], ORB_IDLE))
+                            _show_preview(viewer, model, data,
+                                          res["script"]["motion"],
+                                          res["steps"])
             if st["phase"] == "preview" and now >= st["preview_until"]:
                 with viewer.lock():
                     _clear_preview(viewer)

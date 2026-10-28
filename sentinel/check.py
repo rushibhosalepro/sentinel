@@ -276,15 +276,8 @@ def _node_of(ev: dict) -> str | None:
     return None
 
 
-def check(motion, graph=None, rules=None) -> dict:
-    """Evaluate the rulebook over the motion; most severe verdict wins.
-
-    graph=None keeps the L-00 stub passthrough (C-08 wires the real graph).
-    """
-    if graph is None:
-        print("Sentinel: ALLOW (stub)")
-        return {"kind": "ALLOW", "findings": [], "why_path": [],
-                "feedback": None, "stub": True}
+def check(motion, graph, rules=None) -> dict:
+    """Evaluate the rulebook over the motion; most severe verdict wins."""
     if rules is None:
         rules = load_rulebook()
     events = R.release_events(motion, graph)
