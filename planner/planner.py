@@ -234,6 +234,8 @@ def main() -> None:
     parser.add_argument("instruction")
     parser.add_argument("--reasoning-effort", default=None,
                         choices=["minimal", "low", "medium"])
+    parser.add_argument("--save-raw", default=None, metavar="PATH",
+                        help="save the raw LLM response as a test fixture")
     args = parser.parse_args()
     from graph.scene_graph import load_props  # lazy: keep this module light
     from sim.world import load_scene
@@ -247,6 +249,15 @@ def main() -> None:
     except Exception as e:
         print(f"planner error: {e}")
         raise SystemExit(1)
+    if args.save_raw is not None:
+        from pathlib import Path
+        rec = {"instruction": args.instruction,
+               "model": os.environ.get("PLANNER_MODEL", DEFAULT_MODEL),
+               "content": content}
+        out = Path(args.save_raw)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(rec))
+        print(f"saved raw response to {out}")
     steps, err = plan_from_content(content, set(props["objects"]))
     if err is not None:
         print(f"invalid plan: {err}")
