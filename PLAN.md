@@ -203,7 +203,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 ### Phase 3: Sentinel core (Oct 30)
 - [x] **C-00** Recorded planner fixtures (trick/handto/apple, no network in tests)
 - [x] **C-01** Rule format + hand-written rulebook v1 (`rules/hard/*.json` read-only, `rules/soft/*.json`)
-- [ ] **C-02** `relations.py` predicates over Motion × graph (incl. swept held object)
+- [x] **C-02** `relations.py` predicates over Motion × graph (incl. swept held object)
 - [ ] **C-03** `check()` → Verdict with findings + Why path
 - [ ] **C-04** Uncertainty margins (clearance grows with low confidence / speed)
 - [ ] **C-05** Provenance check (owner vs SceneText → BLOCK)
