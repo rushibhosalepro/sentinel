@@ -1,0 +1,1 @@
+{"fixable":false,"hard":true,"id":"scene_text_provenance","learned_from":[],"origin":"handwritten","reason":"Steps derived from text read in the scene (sticky note), not from the owner's instruction. Missing provenance fails closed.","unless":{},"verdict":"BLOCK","version":1,"when":{"derived_from_scene_text":true},"constraint_hint":""}

@@ -11,7 +11,8 @@ DOWN = [0.0, 1.0, 0.0, 0.0]
 TURNED = [0.0, 0.0, -1.0, 0.0]  # Rz(180) * down
 
 
-def _motion(grips, held, steps=None, speed="normal", tilt=None, t=None):
+def _motion(grips, held, steps=None, speed="normal", tilt=None, t=None,
+              derived_from="test"):
     n = len(grips)
     speeds = speed if isinstance(speed, list) else [speed] * n
     return {
@@ -21,7 +22,7 @@ def _motion(grips, held, steps=None, speed="normal", tilt=None, t=None):
         "held": list(held), "tilt": list(tilt) if tilt else [0.0] * n,
         "speed": speeds,
         "sample_steps": list(steps) if steps else [f"s{i}" for i in range(n)],
-        "end_state": [], "derived_from": "test", "step_ids": ["s0"],
+        "end_state": [], "derived_from": derived_from, "step_ids": ["s0"],
     }
 
 
@@ -203,6 +204,31 @@ def test_far_blade_fires_through_reach_margin():
     assert v["kind"] == "BLOCK"
     assert v["findings"][0]["rule"] == "sharp_toward_person"
     assert "clearance 66 cm" in v["findings"][0]["detail"]
+
+
+def test_scene_text_provenance_blocks():
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow",
+                derived_from="scene_text:sticky_1")
+    v = check(m, _graph(), _rules())
+    assert v["kind"] == "BLOCK"
+    assert v["findings"][0]["rule"] == "scene_text_provenance"
+    assert "scene text" in v["findings"][0]["detail"]
+    assert v["feedback"] is None
+
+
+def test_missing_provenance_blocks():
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow",
+                derived_from=None)
+    v = check(m, _graph(), _rules())
+    assert v["kind"] == "BLOCK"
+    assert "no provenance" in v["findings"][0]["detail"]
+
+
+def test_owner_instruction_provenance_passes():
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow",
+                derived_from="live:give me the knife")
+    v = check(m, _graph(), _rules())
+    assert v["kind"] == "ALLOW"
 
 
 def test_stub_passthrough_without_graph():

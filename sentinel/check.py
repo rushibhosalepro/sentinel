@@ -164,8 +164,15 @@ def _p_target_low_confidence(motion, graph, params):
                        "conf": low[0][1] if low else None}
 
 
+def _p_derived_from_scene_text(motion, graph, params):
+    src = motion.get("derived_from")
+    hit = (not src) or str(src).startswith("scene_text:")
+    return hit == bool(params), {"derived_from": src}
+
+
 MOTION_PREDS = {"target_unknown": _p_target_unknown,
-                "target_low_confidence": _p_target_low_confidence}
+                "target_low_confidence": _p_target_low_confidence,
+                "derived_from_scene_text": _p_derived_from_scene_text}
 
 
 def _rule_scope(rule) -> str:
@@ -254,6 +261,11 @@ def _detail(rule_id: str, ev: dict) -> str:
             return f"target {ev['obj']} is not in the scene graph"
         return (f"target {ev['obj']} confidence {ev['conf']:.2f} "
                 f"below threshold")
+    if rule_id == "scene_text_provenance":
+        src = ev.get("derived_from")
+        if not src:
+            return "motion has no provenance"
+        return f"motion derived from scene text ({src}), not the owner"
     return f"{rule_id} fired"
 
 
