@@ -37,11 +37,19 @@ def _p_held_property(motion, graph, i, params):
     return bool(hit), {"obj": obj, "props": hit}
 
 
+def _with_margin(m, graph, t, speed):
+    m = dict(m)
+    m["margin_cm"] = R.person_margin_cm(graph, m["person"], t, speed)
+    return m
+
+
 def _p_blade_toward_person(motion, graph, i, params):
     m = R.measure_blade(motion, graph, i)
     if m is None:
         return False, {}
-    ok = m["toward"] and m["tip_cm"] <= float(params["within_cm"])
+    m = _with_margin(m, graph, motion["t"][i], motion["speed"][i])
+    ok = m["toward"] and m["tip_cm"] - m["margin_cm"] <= float(
+        params["within_cm"])
     return ok, m
 
 
@@ -49,7 +57,8 @@ def _p_held_near_person(motion, graph, i, params):
     m = R.measure_held(motion, graph, i)
     if m is None:
         return False, {}
-    return m["gap_cm"] <= float(params["within_cm"]), m
+    m = _with_margin(m, graph, motion["t"][i], motion["speed"][i])
+    return m["gap_cm"] - m["margin_cm"] <= float(params["within_cm"]), m
 
 
 def _p_speed(motion, graph, i, params):
@@ -95,8 +104,9 @@ def _p_release_near_person(ev, graph, params):
         return False, {}
     pid, part, d = R.nearest_person_part(ev["pos"], graph, ev["t"])
     gap = d * 100.0
-    return gap <= float(params["within_cm"]), \
-        {"gap_cm": gap, "person": pid, "part": part}
+    m = _with_margin({"gap_cm": gap, "person": pid, "part": part},
+                     graph, ev["t"], ev["speed"])
+    return m["gap_cm"] - m["margin_cm"] <= float(params["within_cm"]), m
 
 
 def _p_release_into_hand(ev, graph, params):
@@ -217,16 +227,18 @@ def load_rulebook(path=None) -> list[dict]:
 
 
 def _detail(rule_id: str, ev: dict) -> str:
+    margin = (f" (clearance {ev['margin_cm']:.0f} cm)"
+              if "margin_cm" in ev else "")
     if rule_id == "sharp_toward_person":
         return (f"knife blade {ev['tip_cm']:.0f} cm from "
                 f"{ev['person']}'s {ev['part']}, pointing at them "
-                f"(handle {ev['handle_cm']:.0f} cm)")
+                f"(handle {ev['handle_cm']:.0f} cm){margin}")
     if rule_id == "release_near_person_in_air":
         return (f"released {ev['obj']} in mid-air {ev['gap_cm']:.0f} cm "
-                f"from {ev['person']} (not into a hand)")
+                f"from {ev['person']} (not into a hand){margin}")
     if rule_id == "sharp_fast_near_person":
         return (f"held {ev['obj']} at normal speed {ev['gap_cm']:.0f} cm "
-                f"from {ev['person']}'s {ev['part']}")
+                f"from {ev['person']}'s {ev['part']}{margin}")
     if rule_id == "liquid_above_electronic":
         what = f"tilted {ev['tilt_deg']:.0f}°" if "tilt_deg" in ev \
             else f"held {ev['obj']}"

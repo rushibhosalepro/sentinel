@@ -205,7 +205,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-01** Rule format + hand-written rulebook v1 (`rules/hard/*.json` read-only, `rules/soft/*.json`)
 - [x] **C-02** `relations.py` predicates over Motion × graph (incl. swept held object)
 - [x] **C-03** `check()` → Verdict with findings + Why path
-- [ ] **C-04** Uncertainty margins (clearance grows with low confidence / speed)
+- [x] **C-04** Uncertainty margins (clearance grows with low confidence / speed)
 - [ ] **C-05** Provenance check (owner vs SceneText → BLOCK)
 - [ ] **C-06** Preflight: run Motion on a copy; detect falls, spills, contact, end-state hazards
 - [ ] **C-07** Unit tests for each rule with positive and negative cases

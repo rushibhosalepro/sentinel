@@ -11,13 +11,13 @@ DOWN = [0.0, 1.0, 0.0, 0.0]
 TURNED = [0.0, 0.0, -1.0, 0.0]  # Rz(180) * down
 
 
-def _motion(grips, held, steps=None, speed="normal", tilt=None):
+def _motion(grips, held, steps=None, speed="normal", tilt=None, t=None):
     n = len(grips)
     speeds = speed if isinstance(speed, list) else [speed] * n
     return {
         "body": "arm",
         "path": [np.array([*g[:3], *g[3]], dtype=float) for g in grips],
-        "t": [round(i * 0.5, 2) for i in range(n)],
+        "t": list(t) if t else [round(i * 0.5, 2) for i in range(n)],
         "held": list(held), "tilt": list(tilt) if tilt else [0.0] * n,
         "speed": speeds,
         "sample_steps": list(steps) if steps else [f"s{i}" for i in range(n)],
@@ -45,7 +45,8 @@ def _graph(hand=(1.0, 0.0, 0.5)):
                             "conf": 1.0},
         },
         "people": {
-            "owner": {"hand": list(hand), "torso": [1.1, 0.0, 0.4],
+            # Torso parked far: the hand is the binding constraint below.
+            "owner": {"hand": list(hand), "torso": [1.6, 0.4, 0.4],
                       "hand_vel": [0.0, 0.0, 0.0],
                       "authorised": ["all"], "role": "owner"},
         },
@@ -67,7 +68,7 @@ def test_allow_when_nothing_fires():
 def test_blade_toward_person_blocks_without_feedback():
     grips = [[0.35, -0.18, 0.10, DOWN], [0.5, -0.18, 0.30, DOWN]]
     m = _motion(grips, ["chef_knife", "chef_knife"], speed="slow")
-    v = check(m, _graph(hand=(0.75, -0.18, 0.25)), _rules())
+    v = check(m, _graph(hand=(1.3, -0.18, 0.25)), _rules())
     assert v["kind"] == "BLOCK"
     assert len(v["findings"]) == 1
     f = v["findings"][0]
@@ -83,14 +84,15 @@ def test_blade_toward_person_blocks_without_feedback():
 def test_blade_away_allows():
     grips = [[0.35, -0.18, 0.10, DOWN], [0.5, -0.18, 0.30, TURNED]]
     m = _motion(grips, ["chef_knife", "chef_knife"], speed="slow")
-    v = check(m, _graph(hand=(0.75, -0.18, 0.25)), _rules())
+    v = check(m, _graph(hand=(1.3, -0.18, 0.25)), _rules())
     assert v["kind"] == "ALLOW"
 
 
 def test_sharp_fast_asks_with_feedback():
-    grips = [[0.35, -0.18, 0.10, DOWN], [0.5, -0.18, 0.30, TURNED]]
-    m = _motion(grips, ["chef_knife", "chef_knife"], speed="normal")
-    v = check(m, _graph(hand=(0.75, -0.18, 0.25)), _rules())
+    g = _graph(hand=(0.2, 0.0, 0.3))
+    g["objects"]["jug"]["pos"] = [0.0, 0.0, 0.3]
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["jug"], speed="normal")
+    v = check(m, g, _rules())
     assert v["kind"] == "ASK"
     assert v["findings"][0]["rule"] == "sharp_fast_near_person"
     assert "normal speed" in v["findings"][0]["detail"]
@@ -105,7 +107,8 @@ def test_release_in_air_blocks_and_beats_ask():
     v = check(m, _graph(hand=(0.5, 0.10, 0.25)), _rules())
     assert v["kind"] == "BLOCK"
     assert v["why_path"][0]["rule"] == "release_near_person_in_air"
-    assert v["why_path"][1]["rule"] == "sharp_fast_near_person"
+    assert v["why_path"][1]["rule"] == "sharp_toward_person"
+    assert v["why_path"][2]["rule"] == "sharp_fast_near_person"
     assert "mid-air" in v["findings"][0]["detail"]
     # The soft ASK finding still contributes its hint.
     assert v["feedback"] == ["slow within 30 cm of a person"]
@@ -116,7 +119,7 @@ def test_tagged_handover_release_is_suppressed():
              [0.5, -0.18, 0.30, TURNED]]
     m = _motion(grips, ["chef_knife", "chef_knife", None],
                 steps=["s1", "s2", "s6:release"], speed="slow")
-    v = check(m, _graph(hand=(0.5, 0.10, 0.25)), _rules())
+    v = check(m, _graph(hand=(1.3, -0.18, 0.25)), _rules())
     assert v["kind"] == "ALLOW"
 
 
@@ -186,6 +189,20 @@ def test_rulebook_rejects_unknown_predicates(tmp_path):
     (tmp_path / "bad.json").write_text(json.dumps(bad))
     with pytest.raises(ValueError, match="unknown predicate"):
         load_rulebook(tmp_path)
+
+
+def test_far_blade_fires_through_reach_margin():
+    # Trick-like: tip 53 cm from the parked hand at t=8, normal speed.
+    # Margin 66 cm (40 reach + 16 stale + 10 speed) -> effective < 0.
+    grips = [[0.35, -0.18, 0.10, DOWN], [0.77, -0.19, 0.30, DOWN]]
+    m = _motion(grips, ["chef_knife", "chef_knife"], speed="normal",
+                t=[0.0, 8.0])
+    g = _graph(hand=(1.45, -0.35, 0.3))
+    g["people"]["owner"]["torso"] = [1.6, 0.3, 0.4]
+    v = check(m, g, _rules())
+    assert v["kind"] == "BLOCK"
+    assert v["findings"][0]["rule"] == "sharp_toward_person"
+    assert "clearance 66 cm" in v["findings"][0]["detail"]
 
 
 def test_stub_passthrough_without_graph():

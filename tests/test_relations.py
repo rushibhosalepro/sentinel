@@ -17,6 +17,7 @@ from sentinel.relations import (
     measure_held_electronic,
     nearest_person_part,
     person_at,
+    person_margin_cm,
     recipient_authorised,
     release_events,
     release_into_hand,
@@ -170,6 +171,16 @@ def test_nearest_person_part_and_held_gaps():
     assert measure_held(_motion(grips, [None]), g2, 0) is None
     e = measure_held_electronic(m, g2, 0)
     assert e["electronic"] == "laptop" and e["gap_cm"] > 50.0
+
+
+def test_person_margin_grows_with_uncertainty():
+    g = _graph()
+    assert person_margin_cm(g, "owner", 0.0, "slow") == 40.0  # reach only
+    assert person_margin_cm(g, "owner", 0.0, "normal") == 50.0  # + speed
+    assert person_margin_cm(g, "owner", 5.0, "slow") == 50.0  # + staleness
+    assert person_margin_cm(g, "owner", 20.0, "slow") == 60.0  # capped
+    g["people"]["owner"]["conf"] = 0.5
+    assert person_margin_cm(g, "owner", 0.0, "slow") == 52.5  # + conf
 
 
 def test_ids_conf_and_authorisation():

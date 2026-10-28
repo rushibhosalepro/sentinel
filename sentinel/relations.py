@@ -27,6 +27,17 @@ PREDICT_CAP_S = 3.0
 # A release within this of a live hand counts as into the hand (S-07 take
 # is 5 cm; the extra 5 cm is the perception/registration allowance).
 RELEASE_INTO_HAND_CM = 10.0
+
+# --- C-04 uncertainty margins (person-distance clearances only) ---
+# A static person snapshot goes stale over a ~10 s motion: the person can
+# reach toward the robot (the trick release sits 70 cm from the parked
+# hand). Clearance = measured gap minus margin; margins NEVER widen
+# suppression zones (into-hand tests stay exact).
+PERSON_REACH_CM = 40.0  # hand envelope around its observed spot
+CONF_SLOPE_CM = 25.0  # added in full at conf 0, scaled by (1 - conf)
+STALE_SLOPE_CM_S = 2.0  # prediction staleness per motion second
+STALE_CAP_S = 10.0  # staleness stops growing here
+SPEED_EXTRA_CM = 10.0  # arm at normal speed leaves less reaction time
 # hand_to expansions tag their release step "<hid>:release"; the expansion
 # waits for the take (timeout keeps holding), so a tagged release is into
 # the taker's hand by construction.
@@ -104,6 +115,15 @@ def person_at(graph, pid: str, t: float) -> dict:
     return {"hand": hand, "torso": np.asarray(p["torso"], dtype=float)}
 
 
+def person_margin_cm(graph, pid: str, t: float, speed: str) -> float:
+    """Clearance for a person gap: reach + uncertainty + staleness + speed."""
+    conf = float(graph["people"][pid].get("conf", 1.0))
+    stale = min(max(float(t), 0.0), STALE_CAP_S)
+    return (PERSON_REACH_CM + CONF_SLOPE_CM * (1.0 - conf)
+            + STALE_SLOPE_CM_S * stale
+            + (SPEED_EXTRA_CM if speed == "normal" else 0.0))
+
+
 def nearest_person_part(point, graph, t: float) -> tuple:
     """(person id, 'hand'|'torso', dist_m) closest to point at time t."""
     point = np.asarray(point, dtype=float)
@@ -147,9 +167,12 @@ def measure_held(motion, graph, i: int) -> dict | None:
     obj = motion["held"][i]
     if obj is None:
         return None
+    pts = _held_keypoints(motion, graph, obj, i)
+    if not pts:  # unknown object: no geometry to measure
+        return None
     t = motion["t"][i]
     best = (None, None, float("inf"))
-    for pt in _held_keypoints(motion, graph, obj, i):
+    for pt in pts:
         pid, part, d = nearest_person_part(pt, graph, t)
         if d < best[2]:
             best = (pid, part, d)
@@ -186,7 +209,8 @@ def release_events(motion, graph) -> list[dict]:
             obj = held[i - 1]
             out.append({"idx": i, "t": motion["t"][i],
                         "step_id": motion["sample_steps"][i], "obj": obj,
-                        "pos": carried_point(motion, graph, obj, i - 1)})
+                        "pos": carried_point(motion, graph, obj, i - 1),
+                        "speed": motion["speed"][i]})
     return out
 
 
