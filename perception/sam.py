@@ -150,15 +150,36 @@ def parse_raw_output(raw_output: str) -> ImageSegmentationResult:
     return _run(_parse_events(_replay()))
 
 
+def _event_usage(events: list) -> dict | None:
+    """Scrape token usage off the buffered stream events (None if absent)."""
+    for event in events:
+        usage = getattr(event, "usage", None)
+        if usage is None and isinstance(event, dict):
+            usage = event.get("usage")
+        if usage is None:
+            response = getattr(event, "response", None)
+            usage = getattr(response, "usage", None) \
+                if response is not None else None
+        if usage is not None:
+            if isinstance(usage, dict):
+                return {k: usage.get(k) for k in
+                        ("input_tokens", "output_tokens", "total_tokens")}
+            return {"input_tokens": getattr(usage, "input_tokens", None),
+                    "output_tokens": getattr(usage, "output_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None)}
+    return None
+
+
 def _collect_events(
     image_path: Path, prompt: str
-) -> list[ResponsesEventLike]:
+) -> tuple[list[ResponsesEventLike], dict | None]:
     """Stream the Responses API (sync client) and buffer the events.
 
     Transport and parsing are deliberately split: the sync client owns the
     HTTP stream (no event loop involved), then the buffered events go
     through the async parser. This also works on locked-down Windows
     accounts where asyncio cannot use threads (see _NoWakeupProactor).
+    Returns (events, usage).
     """
     import base64
 
@@ -182,7 +203,34 @@ def _collect_events(
     ) as stream:
         for event in stream:
             events.append(event)
-    return events
+    return events, _event_usage(events)
+
+
+def _parse_buffered(events) -> ImageSegmentationResult:
+    async def _buffered():
+        for event in events:
+            yield event
+
+    return _run(_parse_events(_buffered()))
+
+
+def _write_cache(cached: Path, image_path: Path, prompt: str,
+                 result: ImageSegmentationResult,
+                 usage: dict | None, extra: dict | None = None) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "model": MODEL,
+        "prompt": prompt,
+        "image": str(image_path),
+        "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
+        "outcome": str(result.outcome),
+        "n_records": len(result.records),
+        "usage": usage,
+        "raw_output": result.raw_output,
+    }
+    if extra:
+        payload.update(extra)
+    cached.write_text(json.dumps(payload))
 
 
 def segment(
@@ -193,25 +241,70 @@ def segment(
         print(f"cache hit: {cached}")
         return parse_raw_output(json.loads(cached.read_text())["raw_output"])
 
-    events = _collect_events(image_path, prompt)
-
-    async def _buffered():
-        for event in events:
-            yield event
-
-    result = _run(_parse_events(_buffered()))
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    cached.write_text(json.dumps({
-        "model": MODEL,
-        "prompt": prompt,
-        "image": str(image_path),
-        "image_sha256": hashlib.sha256(image_path.read_bytes()).hexdigest(),
-        "outcome": str(result.outcome),
-        "n_records": len(result.records),
-        "raw_output": result.raw_output,
-    }))
+    events, usage = _collect_events(image_path, prompt)
+    result = _parse_buffered(events)
+    _write_cache(cached, image_path, prompt, result, usage)
     print(f"cached: {cached}")
     return result
+
+
+def box_cache_path(image_path: Path, boxes: list) -> Path:
+    """Cache file for one multi-box SAM call (G-09 stage 2)."""
+    tag = json.dumps([list(map(int, b)) for b in boxes])
+    digest = hashlib.sha256(image_path.read_bytes() + b"\0" + tag.encode())
+    return CACHE_DIR / f"sam_box_{digest.hexdigest()[:16]}.json"
+
+
+def segment_boxes(
+    image_path: Path, boxes: list, refresh: bool = False
+) -> ImageSegmentationResult:
+    """One SAM call with N box prompts; records carry the box index as id.
+
+    `boxes` are [x0, y0, x1, y1] pixels in the image frame (clamped).
+    Returns the parsed result; use `records_by_id` to split per box.
+    """
+    from meta_sam_parser import (  # lazy: sam.py stays importable bare
+        FramePrompt,
+        PromptBox,
+        PromptObject,
+        build_object_prompt,
+    )
+
+    with Image.open(image_path) as img:
+        width, height = img.size
+    clean = []
+    for b in boxes:
+        x0, y0, x1, y1 = (max(0, min(int(v), lim)) for v, lim in
+                          zip(b, (width - 1, height - 1, width, height)))
+        if x1 <= x0 or y1 <= y0:
+            raise ValueError(f"box {list(b)} is empty after clamping "
+                             f"to {width}x{height}")
+        clean.append([x0, y0, x1, y1])
+    cached = box_cache_path(image_path, clean)
+    if cached.exists() and not refresh:
+        print(f"cache hit: {cached}")
+        return parse_raw_output(json.loads(cached.read_text())["raw_output"])
+
+    prompt = build_object_prompt(
+        size=(width, height),
+        objects=[PromptObject(id=i, prompts=[FramePrompt(
+            frame=0, box=PromptBox(left=x0, top=y0, right=x1,
+                                   bottom=y1))])
+                 for i, (x0, y0, x1, y1) in enumerate(clean)])
+    events, usage = _collect_events(image_path, prompt)
+    result = _parse_buffered(events)
+    _write_cache(cached, image_path, prompt, result, usage,
+                 extra={"boxes": clean, "width": width, "height": height})
+    print(f"cached: {cached}")
+    return result
+
+
+def records_by_id(result: ImageSegmentationResult) -> dict:
+    """Group records by object_id -> {kind: record} (box-prompt replies)."""
+    by_id: dict = {}
+    for record in result.records:
+        by_id.setdefault(record.object_id, {})[record.kind] = record
+    return by_id
 
 
 def confidences(result: ImageSegmentationResult) -> list[float]:

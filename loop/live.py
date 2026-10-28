@@ -122,6 +122,15 @@ def _step_arg(s: dict) -> str:
 
 def _overlay_text(st: dict) -> str:
     lines = [f"Instruction: {st['instruction'] or '-'}"]
+    if st.get("perception") == "sam":
+        lines.append("perception: SAM 3.1")
+        conf = st.get("perceive_conf") or {}
+        if conf:
+            lows = sorted(k for k, v in conf.items() if v < 0.5)
+            detail = f"min {min(conf.values()):.2f} ({len(conf)} objects)"
+            if lows:
+                detail += f" LOW: {', '.join(lows[:3])}"
+            lines.append(f"conf: {detail}"[:64])
     phase = st["phase"]
     if phase == "planning":
         lines.append(f"Muse Spark planning... "
@@ -216,13 +225,16 @@ def _restore(model, data, home: dict, person: dict) -> None:
 
 
 def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
-    """Background thread: propose -> motion -> check -> replan (L-06).
+    """Background thread: perceive -> propose -> motion -> check -> replan.
 
     Retries ASK and SOFT-BLOCK verdicts with fixable feedback, plus
     invalid plans and build errors (error text as feedback); never
     retries a verdict with a hard finding. Max 3 rounds. Records the
     round trace for the overlay. A job may carry rounds/trace to
     continue numbering after a HALT replan (fresh plan, no feedback).
+    A job with a captured "frame" runs G-09 perception first (sam
+    mode): facts positions and the checker graph come from the frame,
+    and low-confidence targets ASK via the unknown_object rule.
     """
     while True:
         job = jobs.get()
@@ -231,6 +243,35 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         note = None
         rounds = job.get("rounds", 0)
         trace: list[str] = list(job.get("trace", []))
+        conf_summary = None
+        if "frame" in job:  # --perception sam: see before thinking
+            from perception.perceive import perceive_frame
+            try:
+                out = perceive_frame(
+                    model, job["data"], job["frame"]["frame"],
+                    job["frame"]["path"], job["props"])
+            except Exception as e:  # noqa: BLE001 - reported, never raised
+                trace.append("perception: ERROR")
+                results.put({"gen": job["gen"],
+                             "error": f"perception error: {e}",
+                             "trace": trace})
+                continue
+            objs = [o for o in job["facts"]["objects"]
+                    if o["id"] in out["positions"]]
+            for o in objs:
+                o["pos"] = [round(float(v), 3)
+                            for v in out["positions"][o["id"]]]
+            job["facts"]["objects"] = objs
+            job["perceived"] = out["perceived"]
+            conf_summary = {k: round(v["conf"], 2)
+                            for k, v in out["perceived"].items()}
+            n_unknown = sum(k.startswith("unknown")
+                            for k in conf_summary)
+            trace.append(f"perception: SAM 3.1 ({len(objs)} objects"
+                         + (f", {n_unknown} unknown" if n_unknown else "")
+                         + f", min conf {min(conf_summary.values()):.2f})")
+            print(f"perceived {len(objs)} objects "
+                  f"(min conf {min(conf_summary.values()):.2f})")
         while True:  # replan loop
             attempt = rounds + 1
             try:
@@ -271,7 +312,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 trace.append(f"feedback: {err}"[:80])
                 print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
                 continue
-            graph = graph_snapshot(model, job["data"], job["props"])
+            graph = graph_snapshot(model, job["data"], job["props"],
+                                     perceived=job.get("perceived"))
             try:
                 verdict = check(script["motion"], graph)
             except Exception as e:  # noqa: BLE001 - reported, never raised
@@ -287,7 +329,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
                              "script": script, "verdict": verdict,
-                             "rounds": rounds, "trace": trace})
+                             "rounds": rounds, "trace": trace,
+                             "perceived": conf_summary})
                 break
             rounds += 1
             note = format_replan_note(verdict, attempt)
@@ -321,7 +364,7 @@ def _reset_all(viewer, model, data, home, person, st) -> None:
     st.update(phase="idle", instruction="", steps=None, script=None,
               seg_i=0, motion=None, verdict=None, error=None, current=None,
               trace=[], halt=None, halt_last=0.0, held_now=None,
-              rounds=0)
+              rounds=0, perceive_conf=None)
 
 
 def _random_reach_target() -> np.ndarray:
@@ -344,14 +387,33 @@ def _apply_preset(model, data, home, name: str) -> None:
     mujoco.mj_forward(model, data)
 
 
+def _perceive_sync(model, data, props, tag: str = "live") -> tuple:
+    """Render + perceive one state; (positions, perceived, summary)."""
+    from perception.frames import perception_frame, save_frame
+    from perception.perceive import perceive_frame
+    from sim.world import OUT_DIR
+
+    frame = perception_frame(model, data)
+    path = save_frame(frame, OUT_DIR / f"perception_{tag}.png")
+    out = perceive_frame(model, data, frame, path, props)
+    summary = {k: round(v["conf"], 2)
+               for k, v in out["perceived"].items()}
+    print(f"perceived {len(out['positions'])} objects from {path.name} "
+          f"(min conf {min(summary.values()):.2f})")
+    return out["positions"], out["perceived"], summary
+
+
 def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   preset: str | None = None,
-                  f6_at: float | None = None) -> None:
+                  f6_at: float | None = None,
+                  perception: str = "truth") -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
     plus the L-07 HALT monitor on virtual time (person, freeze, clear,
     replan). f6_at fires the F6 intrusion at that exec time (seconds).
+    perception="sam" perceives each planned state with G-09 (the HALT
+    replan re-perceives too); anything else uses sim ground truth.
     """
     import imageio.v2 as imageio
     from pathlib import Path
@@ -364,7 +426,15 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         _apply_preset(model, data, None, preset)
         print(f"preset: {preset}")
     halt_params = rule_params()
-    facts = scene_facts(model, data, props)
+    positions, perceived, _ = (None, None, None)
+    if perception == "sam":
+        try:
+            positions, perceived, _ = _perceive_sync(
+                model, data, props)
+        except Exception as e:  # noqa: BLE001 - reported, never raised
+            print(f"perception error: {e} (not moving)")
+            raise SystemExit(1)
+    facts = scene_facts(model, data, props, perceived=positions)
     hand_id = model.body("hand").id
     home_pos = data.xpos[hand_id].copy()
     home_quat = data.xquat[hand_id].copy()
@@ -375,7 +445,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     jobs.put({"gen": 0, "instruction": instruction, "facts": facts,
               "data": data, "valid_ids": set(props["objects"]),
               "valid_people": set(props["people"]), "props": props,
-              "home_pos": home_pos, "home_quat": home_quat})
+              "home_pos": home_pos, "home_quat": home_quat,
+              "perceived": perceived})
 
     def take_result():
         res = results.get()
@@ -510,10 +581,16 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                     raise SystemExit(1)
                                 scratch = mujoco.MjData(model)
                                 mujoco.mj_copyData(scratch, model, data)
+                                positions, perceived, _ = (None, None, None)
+                                if perception == "sam":
+                                    positions, perceived, _ = \
+                                        _perceive_sync(model, data, props,
+                                                       tag="live_halt")
                                 facts = scene_facts(
                                     model, data, props,
                                     reaching=person["active"],
-                                    holding=halt["held"])
+                                    holding=halt["held"],
+                                    perceived=positions)
                                 rounds_start = rounds + 1
                                 trace.append(
                                     f"clear {CLEAR_S:.0f}s -> fresh plan "
@@ -528,7 +605,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "home_pos": home_pos,
                                           "home_quat": home_quat,
                                           "rounds": rounds_start,
-                                          "trace": trace})
+                                          "trace": trace,
+                                          "perceived": perceived})
                                 _, script, rounds, trace = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
@@ -566,6 +644,11 @@ def main() -> None:
                         metavar="SEC",
                         help="headless: fire the F6 intrusion at SEC exec "
                         "time (F6 key live)")
+    parser.add_argument("--perception", default="truth",
+                        choices=["truth", "sam"],
+                        help="scene graph source: sim ground truth, or "
+                        "SAM 3.1 + Muse Spark from the front camera "
+                        "(G-09; default truth until G-06 passes)")
     args = parser.parse_args()
     if bool(args.record) != bool(args.instruction):
         parser.error("--record and --instruction go together")
@@ -573,7 +656,7 @@ def main() -> None:
         parser.error("--f6-at needs --record")
     if args.record:
         _run_headless(args.instruction, args.record, preset=args.preset,
-                      f6_at=args.f6_at)
+                      f6_at=args.f6_at, perception=args.perception)
         return
 
     model, data = load_scene("kitchen")
@@ -596,7 +679,8 @@ def main() -> None:
           "exec_t0": 0.0, "preview_until": 0.0, "current": None,
           "gen": 0, "cam": "demo", "last_t": 0.0, "queued": 0,
           "trace": [], "halt": None, "halt_last": 0.0, "held_now": None,
-          "rounds": 0}
+          "rounds": 0, "perception": args.perception,
+          "perceive_conf": None}
     halt_params = rule_params()
     if halt_params is None:
         print("warning: person_in_path rule missing: HALT monitor off")
@@ -631,19 +715,33 @@ def main() -> None:
     threading.Thread(target=_reader, args=(lines,), daemon=True).start()
     pending = deque()  # instructions waiting their turn
 
+    def _capture() -> dict | None:
+        """Render + save the perception frame (call under viewer lock)."""
+        if args.perception != "sam":
+            return None
+        from perception.frames import perception_frame, save_frame
+        from sim.world import OUT_DIR
+        frame = perception_frame(model, data)
+        path = save_frame(frame, OUT_DIR / "perception_live.png")
+        return {"frame": frame, "path": path}
+
     def _dispatch(text: str, now: float) -> None:
         with viewer.lock():
             scratch = mujoco.MjData(model)
             mujoco.mj_copyData(scratch, model, data)
             facts = scene_facts(model, data, props,
                                 reaching=person["active"])
-        jobs.put({"gen": st["gen"], "instruction": text,
-                  "facts": facts, "data": scratch,
-                  "valid_ids": valid_ids,
-                  "valid_people": valid_people,
-                  "props": props,
-                  "home_pos": home["hand_pos"],
-                  "home_quat": home["hand_quat"]})
+            captured = _capture()
+        job = {"gen": st["gen"], "instruction": text,
+               "facts": facts, "data": scratch,
+               "valid_ids": valid_ids,
+               "valid_people": valid_people,
+               "props": props,
+               "home_pos": home["hand_pos"],
+               "home_quat": home["hand_quat"]}
+        if captured is not None:
+            job["frame"] = captured
+        jobs.put(job)
         st.update(phase="planning", instruction=text,
                   plan_start=now, steps=None, script=None,
                   seg_i=0, motion=None, verdict=None,
@@ -664,18 +762,22 @@ def main() -> None:
             facts = scene_facts(model, data, props,
                                 reaching=person["active"],
                                 holding=st["held_now"])
+            captured = _capture()
         rounds_start = st["rounds"] + 1
         trace = (st.get("trace") or []) + [
             f"clear {CLEAR_S:.0f}s -> fresh plan (round "
             f"{rounds_start + 1})"]
-        jobs.put({"gen": st["gen"], "instruction": st["instruction"],
-                  "facts": facts, "data": scratch,
-                  "valid_ids": valid_ids,
-                  "valid_people": valid_people,
-                  "props": props,
-                  "home_pos": home["hand_pos"],
-                  "home_quat": home["hand_quat"],
-                  "rounds": rounds_start, "trace": trace})
+        job = {"gen": st["gen"], "instruction": st["instruction"],
+               "facts": facts, "data": scratch,
+               "valid_ids": valid_ids,
+               "valid_people": valid_people,
+               "props": props,
+               "home_pos": home["hand_pos"],
+               "home_quat": home["hand_quat"],
+               "rounds": rounds_start, "trace": trace}
+        if captured is not None:
+            job["frame"] = captured
+        jobs.put(job)
         st.update(phase="planning", plan_start=now, steps=None,
                   script=None, seg_i=0, motion=None, verdict=None,
                   error=None, current=None, halt=None)
@@ -683,6 +785,7 @@ def main() -> None:
             _draw_orb(viewer, ORB_IDLE)
         print(f"replanning from HALT state (round {rounds_start + 1})")
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
+    print(f"perception: {'SAM 3.1 + Muse Spark' if args.perception == 'sam' else 'sim ground truth'}")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
     print("[F3] cup next to laptop  [F4] default scene")
     print("[F6] person grabs at the gripper (HALT demo)")
@@ -777,7 +880,8 @@ def main() -> None:
                               motion=res["script"]["motion"], seg_i=0,
                               preview_until=now + PREVIEW_T,
                               trace=res.get("trace", []),
-                              rounds=res["rounds"])
+                              rounds=res["rounds"],
+                              perceive_conf=res.get("perceived"))
                     _print_plan(res["steps"])
                     print(_motion_summary(res["script"]["motion"]))
                     if res.get("trace"):

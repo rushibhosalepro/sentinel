@@ -39,6 +39,12 @@ class Detection:
     bbox_min: np.ndarray  # world (3,)
     bbox_max: np.ndarray  # world (3,)
     n_points: int
+    # G-09: raw Spark label + matched props id (None = unknown_object).
+    # For G-09 detections `centroid` carries the perceived base point
+    # (median x/y, min z): the counter-level point the planner/grasp
+    # math expects, matching how truth origins sit near the surface.
+    label: str = ""
+    match: str | None = None
 
 
 def camera_params(model: mujoco.MjModel, data: mujoco.MjData,
@@ -82,11 +88,15 @@ def project(points: np.ndarray, cam: CamParams):
 
 
 def lift_mask(mask: np.ndarray, depth: np.ndarray, cam: CamParams,
-              min_pixels: int = MIN_MASK_PIXELS):
+              min_pixels: int = MIN_MASK_PIXELS,
+              z_floor: float | None = None):
     """Lift a boolean image mask to (centroid, bbox_min, bbox_max, n).
 
     Median centroid (robust to mask bleed); min/max box. Returns None when
     fewer than min_pixels valid depth readings fall inside the mask.
+    `z_floor` (G-09) drops backprojected points below it: mask bleed
+    onto the floor/backdrop past the counter edge would otherwise drag
+    the box bottom (and the G-09 base point) under the counter.
     """
     valid = (np.asarray(mask, dtype=bool)
              & np.isfinite(depth)
@@ -95,4 +105,8 @@ def lift_mask(mask: np.ndarray, depth: np.ndarray, cam: CamParams,
     if len(us) < min_pixels:
         return None
     pts = backproject(us, vs, depth[vs, us], cam)
+    if z_floor is not None:
+        keep = pts[:, 2] >= z_floor
+        if keep.sum() >= min_pixels:
+            pts = pts[keep]
     return (np.median(pts, axis=0), pts.min(axis=0), pts.max(axis=0), len(us))

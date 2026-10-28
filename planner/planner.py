@@ -86,11 +86,21 @@ Rules:
 
 
 def scene_facts(model, data, props: dict, reaching: bool = False,
-                holding: str | None = None) -> dict:
-    """Ground-truth facts for the planner (objects + people, no image)."""
+                holding: str | None = None,
+                perceived: dict | None = None) -> dict:
+    """Ground-truth facts for the planner (objects + people, no image).
+
+    `perceived` (G-09 sam mode) maps object id -> [x, y, z] from the
+    perception graph; matched ids report perceived positions, objects
+    the frame missed are omitted, and unknown_object entries never
+    reach the planner (it may only use props.yaml ids).
+    """
     objects = []
     for name, spec in props["objects"].items():
-        pos = data.xpos[model.body(name).id]
+        if perceived is not None and name not in perceived:
+            continue
+        pos = perceived[name] if perceived is not None \
+            else data.xpos[model.body(name).id]
         objects.append({
             "id": name,
             "label": spec["label"],

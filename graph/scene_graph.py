@@ -236,22 +236,71 @@ def init_perception_graph(model, data, props: dict | None = None,
     return g
 
 
-def _spawn_object(g: nx.MultiDiGraph, props: dict, obj: str,
+def upsert_object(g: nx.MultiDiGraph, props: dict, obj: str,
                   det, ts: float) -> None:
+    """Spawn or refresh a matched Object node from a detection. (G-09)"""
     spec = props["objects"][obj]
-    g.add_node(object_id(obj), type=NODE_OBJECT, label=spec["label"],
-               track_id=obj, pos=np.asarray(det.centroid).tolist(),
-               bbox3d=[*np.asarray(det.bbox_min).tolist(),
-                       *np.asarray(det.bbox_max).tolist()],
-               conf=float(det.conf), last_seen=ts, stale=False,
-               tracked=True, held=False, owner=spec["owner"])
+    node = object_id(obj)
+    attrs = dict(type=NODE_OBJECT, label=spec["label"], track_id=obj,
+                 pos=np.asarray(det.centroid).tolist(),
+                 bbox3d=[*np.asarray(det.bbox_min).tolist(),
+                         *np.asarray(det.bbox_max).tolist()],
+                 conf=float(det.conf), last_seen=ts, stale=False,
+                 tracked=True, held=False, owner=spec["owner"])
+    if node in g.nodes and g.nodes[node].get("tracked"):
+        g.nodes[node].update(attrs)
+        return
+    g.add_node(node, **attrs)
     for prop in spec["properties"]:
         pid = property_id(prop)
         if not g.has_node(pid):
             g.add_node(pid, type=NODE_PROPERTY, name=prop)
-        g.add_edge(object_id(obj), pid, type=EDGE_HAS, ts=ts)
-    g.add_edge(object_id(obj), person_id(spec["owner"]),
-               type=EDGE_OWNED_BY, ts=ts)
+        g.add_edge(node, pid, type=EDGE_HAS, ts=ts)
+    g.add_edge(node, person_id(spec["owner"]), type=EDGE_OWNED_BY, ts=ts)
+
+
+def spawn_unknown(g: nx.MultiDiGraph, label: str, det, ts: float,
+                  idx: int = 0) -> str:
+    """Spawn an unknown_object node (no properties, no owner). (G-09)
+
+    Returns the node id ("unknown_object", "unknown_object_2", ...).
+    """
+    node = "unknown_object" if idx == 0 else f"unknown_object_{idx + 1}"
+    g.add_node(node, type=NODE_OBJECT, label=label, track_id=node,
+               pos=np.asarray(det.centroid).tolist(),
+               bbox3d=[*np.asarray(det.bbox_min).tolist(),
+                       *np.asarray(det.bbox_max).tolist()],
+               conf=float(det.conf), last_seen=ts, stale=False,
+               tracked=True, held=False, owner=None, unknown=True)
+    return node
+
+
+def build_perception_graph(model, data, detections,
+                           props: dict | None = None,
+                           ts: float | None = None) -> nx.MultiDiGraph:
+    """Full G-09 graph: priors + matched objects + unknowns + relations.
+
+    Detections carry `match` (props id or None); duplicates are demoted
+    to unknown (highest confidence keeps the id). Pure (no network).
+    """
+    props = props if props is not None else load_props()
+    ts = data.time if ts is None else ts
+    g = init_perception_graph(model, data, props, ts)
+    taken: set[str] = set()
+    unknowns = 0
+    for det in sorted(detections, key=lambda d: -d.conf):
+        oid = det.match
+        if oid is not None and (oid in taken
+                                or oid not in props["objects"]):
+            oid = None
+        if oid is None:
+            spawn_unknown(g, det.label or det.prompt, det, ts, unknowns)
+            unknowns += 1
+        else:
+            taken.add(oid)
+            upsert_object(g, props, oid, det, ts)
+    recompute_relations(g, ts)
+    return g
 
 
 def update_from_detections(g: nx.MultiDiGraph, detections,
@@ -295,7 +344,7 @@ def update_from_detections(g: nx.MultiDiGraph, detections,
             dropped.append((det.prompt, "duplicate"))
             continue
         if best not in g.nodes or not g.nodes[best].get("tracked"):
-            _spawn_object(g, props, best, det, ts)
+            upsert_object(g, props, best, det, ts)
         else:
             node = g.nodes[best]
             node["pos"] = np.asarray(det.centroid).tolist()

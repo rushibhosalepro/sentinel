@@ -13,21 +13,40 @@ from sentinel.safe_spot import find_safe_spot
 from sim.geometry import body_aabb
 
 
-def graph_snapshot(model, data, props: dict) -> dict:
-    """Build the checker's graph from props + current sim state."""
+def graph_snapshot(model, data, props: dict,
+                   perceived: dict | None = None) -> dict:
+    """Build the checker's graph from props + current sim state.
+
+    `perceived` (G-09 sam mode) maps object id -> {pos, extent, conf}
+    from the perception graph; matched ids keep their props.yaml
+    properties/owner, unknown_object entries get none. Objects the
+    frame missed are absent (check() treats missing targets as
+    unknown); people always come from sim state.
+    """
     objects = {}
-    for oid, spec in props["objects"].items():
-        bid = model.body(oid).id
-        try:
-            lo, hi = body_aabb(model, data, bid)
-            extent = ((np.asarray(hi) - np.asarray(lo)) / 2.0).tolist()
-        except Exception:  # noqa: BLE001 - unbounded geometry -> point
-            extent = [0.0, 0.0, 0.0]
-        objects[oid] = {"pos": data.xpos[bid].copy(),
-                        "quat": data.xquat[bid].copy(),
-                        "extent": extent,
-                        "properties": list(spec.get("properties", [])),
-                        "owner": spec.get("owner"), "conf": 1.0}
+    if perceived is None:
+        for oid, spec in props["objects"].items():
+            bid = model.body(oid).id
+            try:
+                lo, hi = body_aabb(model, data, bid)
+                extent = ((np.asarray(hi) - np.asarray(lo)) / 2.0).tolist()
+            except Exception:  # noqa: BLE001 - unbounded geometry -> point
+                extent = [0.0, 0.0, 0.0]
+            objects[oid] = {"pos": data.xpos[bid].copy(),
+                            "quat": data.xquat[bid].copy(),
+                            "extent": extent,
+                            "properties": list(spec.get("properties", [])),
+                            "owner": spec.get("owner"), "conf": 1.0}
+    else:
+        for oid, p in perceived.items():
+            spec = props["objects"].get(oid, {})
+            objects[oid] = {"pos": np.asarray(p["pos"], dtype=float),
+                            "quat": np.array([1.0, 0.0, 0.0, 0.0]),
+                            "extent": list(p["extent"]),
+                            "properties": list(
+                                spec.get("properties", [])),
+                            "owner": spec.get("owner"),
+                            "conf": float(p["conf"])}
     hid = model.body("human_hand").id
     tid = model.body("human_torso").id
     scopes = props.get("people", {}).get("owner", {}).get("authorised", [])

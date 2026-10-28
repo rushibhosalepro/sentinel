@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.11** (Oct 28, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.12** (Oct 28, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -197,7 +197,12 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **G-03** Lift to 3D with depth + intrinsics; associate SAM ids ↔ nodes; object permanence
 - [x] **G-04** Relations: ON / NEAR{dist} / ABOVE / INSIDE / HOLDS with timestamps
 - [x] **G-05** Person velocity + short prediction (`person_predicted`)
-- [ ] **G-06** Perception accuracy vs ground truth (IoU, misses) → number for README
+- [x] **G-06** Accuracy gate: graph from perception (lift3d) vs ground truth — all found, ≤3 cm, sharp/liquid/electronic correct (PASS, out/perception_report.md)
+- [x] **G-07** Recognisable props: distinct shape + colour per prop (ids/sizes/props.yaml unchanged)
+- [x] **G-08** Perception frames 1280x960 from a counter-covering tight `front` camera
+- [x] **G-09** Two-stage detection: Muse Spark {label, box} → SAM 3.1 box-prompt masks; label match or unknown_object; cache per frame hash
+- [x] **G-10** `bench/perception_compare.py`: text-SAM vs Spark+SAM on default/F3/F4 → `out/perception_report.md`
+- [x] **Wire-up** `--perception sam|truth` in loop.live (default truth); sam overlay shows per-object conf; conf < 0.5 ASKs via the unknown_object rule
 - **Done when:** the graph from SAM matches ground truth on the hero scenes (or the fallback is documented).
 
 ### Phase 3: Sentinel core (Oct 30)
@@ -399,6 +404,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.9 | Oct 28 | L-06 reliability: exact-coordinate hint, replan discipline line, place-before-release |
 | v1.10 | Oct 28 | Add C-09 (computed liquid safe spot, ASK when none) |
 | v1.11 | Oct 28 | L-07 live HALT monitor (person_in_path, freeze, clear-1s, replan) |
+| v1.12 | Oct 28 | Perception phase: G-07..G-10 rework, G-06 accuracy gate |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
