@@ -11,3 +11,4 @@ sim/assets/
 .uv-python/
 .pytest_cache/
 .uv-cache/
+pytest-of-*/

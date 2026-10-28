@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import queue
+from collections import deque
 import random
 import threading
 import time
@@ -127,6 +128,8 @@ def _overlay_text(st: dict) -> str:
         lines.append(str(st["error"])[:70])
     else:
         lines.append("idle - type an instruction")
+    if st.get("queued"):
+        lines.append(f"queued ({st['queued']})")
     if st["steps"]:
         ids = [s["id"] for s in st["steps"]]
         try:
@@ -219,6 +222,11 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             continue
         results.put({"gen": job["gen"], "steps": steps, "script": script,
                      "verdict": verdict})
+
+
+def _clean_line(line: str) -> str:
+    """Strip control characters from pasted input; "" means ignore."""
+    return "".join(c for c in line if c == "\t" or ord(c) >= 32).strip()
 
 
 def _reader(lines: queue.Queue) -> None:
@@ -353,7 +361,7 @@ def main() -> None:
           "steps": None, "script": None, "seg_i": 0, "seg_t0": 0.0,
           "motion": None, "verdict": None, "error": None,
           "exec_t0": 0.0, "preview_until": 0.0, "current": None,
-          "gen": 0, "cam": "demo", "last_t": 0.0}
+          "gen": 0, "cam": "demo", "last_t": 0.0, "queued": 0}
 
     def key_callback(keycode: int) -> None:
         if keycode == KEY_F1:
@@ -377,6 +385,27 @@ def main() -> None:
                      daemon=True).start()
     lines: queue.Queue = queue.Queue()
     threading.Thread(target=_reader, args=(lines,), daemon=True).start()
+    pending = deque()  # instructions waiting their turn
+
+    def _dispatch(text: str, now: float) -> None:
+        with viewer.lock():
+            scratch = mujoco.MjData(model)
+            mujoco.mj_copyData(scratch, model, data)
+            facts = scene_facts(model, data, props,
+                                reaching=person["active"])
+        jobs.put({"gen": st["gen"], "instruction": text,
+                  "facts": facts, "data": scratch,
+                  "valid_ids": valid_ids,
+                  "valid_people": valid_people,
+                  "props": props,
+                  "home_pos": home["hand_pos"],
+                  "home_quat": home["hand_quat"]})
+        st.update(phase="planning", instruction=text,
+                  plan_start=now, steps=None, script=None,
+                  seg_i=0, motion=None, verdict=None,
+                  error=None, current=None)
+        with viewer.lock():
+            _draw_orb(viewer, ORB_IDLE)
     print("Kitchen live. Type instructions in THIS terminal (or quit).")
     print("[F1] person reaches in  [F2] camera  [F5] reset  [Esc] quit")
     eof = False
@@ -386,7 +415,7 @@ def main() -> None:
             _draw_orb(viewer, ORB_IDLE)
         while viewer.is_running() and not flags["quit"] and not (
                 eof and st["phase"] not in ("planning", "preview",
-                                            "executing")):
+                                            "executing") and not pending):
             now = time.perf_counter()
             wall_dt = now - st["last_t"]
             st["last_t"] = now
@@ -418,32 +447,16 @@ def main() -> None:
                 print("(stdin closed)")
                 continue
             if line is not ...:
-                text = line.strip()
+                text = _clean_line(line)
                 if text.lower() in ("quit", "exit"):
                     break
                 if text:
                     if st["phase"] in ("planning", "preview", "executing"):
-                        print(f"busy ({st['phase']}); wait for Done")
+                        pending.append(text)
+                        st["queued"] = len(pending)
+                        print(f"queued ({len(pending)})")
                     else:
-                        with viewer.lock():
-                            scratch = mujoco.MjData(model)
-                            mujoco.mj_copyData(scratch, model, data)
-                            facts = scene_facts(
-                                model, data, props,
-                                reaching=person["active"])
-                        jobs.put({"gen": st["gen"], "instruction": text,
-                                  "facts": facts, "data": scratch,
-                                  "valid_ids": valid_ids,
-                                  "valid_people": valid_people,
-                                  "props": props,
-                                  "home_pos": home["hand_pos"],
-                                  "home_quat": home["hand_quat"]})
-                        st.update(phase="planning", instruction=text,
-                                  plan_start=now, steps=None, script=None,
-                                  seg_i=0, motion=None, verdict=None,
-                                  error=None, current=None)
-                        with viewer.lock():
-                            _draw_orb(viewer, ORB_IDLE)
+                        _dispatch(text, now)
             try:
                 res = results.get_nowait()
             except queue.Empty:
@@ -544,6 +557,11 @@ def main() -> None:
             else:
                 with viewer.lock():
                     _step_person(model, data, person)
+            if pending and st["phase"] in ("done", "error", "idle"):
+                nxt = pending.popleft()
+                st["queued"] = len(pending)
+                print(f"next: {nxt}")
+                _dispatch(nxt, now)
             viewer.set_texts(
                 (mujoco.mjtFontScale.mjFONTSCALE_150,
                  mujoco.mjtGridPos.mjGRID_TOPLEFT, _overlay_text(st), ""))
