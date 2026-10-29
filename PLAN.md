@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.22** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.23** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -238,6 +238,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-03** Split layout, right tabs: Graph (top-down x/y SVG, relations as labelled edges, hazard colours) + Verdicts (one card per round, **Why?** panel: rule text, hard/soft, origin seed/learned, predicate values, steps, relations on the path). Events carry structured why from sentinel.check (rule id, hard/soft, origin, predicates, step ids, relations); why_path_for kept as fallback only. New feedback + proposal events.
 - [x] **D-04** Timeline under the camera: proposal → finding → feedback → replan → verdict per round, HALT/clear marks, final status; click a round to open its **Why?** panel.
 - [x] **D-05** ASK approval (owner only): final ASK emits an ask event and waits (max 60 s); approve executes the last motion, deny/timeout stops. POST /ask/{ask_id} {decision, token}, token = OWNER_TOKEN from .env.local (page reads ?owner=); wrong token → 403. HARD findings never become ASK.
+- [x] **D-06** Graph tab shows Sentinel's real relations: delete the invented App.jsx edge thresholds; the graph event carries `edges` (ON/NEAR/dist_cm/ABOVE/INSIDE/HAS) + `extra_nodes` (counter) serialized from `graph/scene_graph.py` builders at both emission sites (run rounds + idle/preset). Web draws exactly those: ON/ABOVE/INSIDE always, NEAR only hazard-involved (dist_cm on hover), HAS as hover sub-labels; verdict why_path measured relations overlay thick red (BLOCK/HALT) / amber (ASK) with values + gripper path, auto-showing the last verdict; one owner group (hand+torso joined) captioned "tracked for hand-over + HALT rules"; caption "lines = scene relations · red = what the last verdict measured". Test: event edges == builder edges on the default scene (incl. apple ON plate). Sam mode still emits sim-state relations (perceived-relation builders are future work).
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -416,6 +417,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.20 | Oct 29 | Phase 6 built: event log + Wonder proposer (soft+unfixable coercion) + gate (4 replay cases, ratchet) + learn/rollback CLIs + Rules tab + incident filing; 20 predicate vocabulary incl. held_near_object_property/object_near_edge |
 | v1.21 | Oct 29 | Camera cleanup: overlays deleted, "On the table" panel (hazard chips, also-line, hand-gripper distance; graph snapshot gains gripper), why-driven chip highlight, guaranteed non-overlapping graph labels |
 | v1.22 | Oct 29 | Phase 7 spec: B-01 seeds+variants+labels.lock, B-02 9 conditions (4 core), B-03 seen/unseen, B-04 cache+resume+contributor bulk, B-05 RESULTS.md; demo learned rule rolled back (seed rulebook for benchmark) |
+| v1.23 | Oct 29 | D-06 done: graph event carries real scene_graph edges (ON/NEAR/ABOVE/INSIDE/HAS) + counter node; web draws exactly those, hazard-only NEAR, verdict overlay red/amber + captions, owner group; 311 tests green |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

@@ -125,7 +125,7 @@ def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
     import loop.live as live
     from dashboard.events import (encode_jpeg_b64, frame_event, graph_event,
                                   project_boxes)
-    from graph.scene_graph import load_props
+    from graph.scene_graph import attach_dashboard_edges, load_props
     from sentinel.graph_view import graph_snapshot
     from sim.world import HEIGHT, WIDTH, load_scene
 
@@ -149,6 +149,8 @@ def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
         with RENDER_LOCK:
             renderer.close()
     graph = graph_snapshot(idle["model"], idle["data"], idle["props"])
+    attach_dashboard_edges(graph, idle["model"], idle["data"],
+                           idle["props"])
     boxes = project_boxes(idle["model"], idle["data"], idle["props"],
                           "demo", WIDTH, HEIGHT)
     return (frame_event(encode_jpeg_b64(frame), boxes, "truth", 0.0),

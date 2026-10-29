@@ -77,6 +77,53 @@ def test_project_boxes_tags():
         ("chef_knife", "SHARP", 0.7)]
 
 
+def test_dashboard_payload_carries_builder_edges():
+    from graph.scene_graph import (DASHBOARD_EDGE_TYPES, build_ground_truth,
+                                   dashboard_payload, load_props)
+    from sim.world import load_scene
+
+    model, data = load_scene("kitchen")
+    props = load_props()
+    payload = dashboard_payload(build_ground_truth(model, data, props),
+                                props)
+    assert set(DASHBOARD_EDGE_TYPES) == {"ON", "NEAR", "ABOVE", "INSIDE",
+                                         "HAS"}
+    got = {(e["rel"], e["subj"], e["obj"]) for e in payload["edges"]}
+    assert ("ON", "apple", "plate") in got  # the visible hero edge
+    assert ("HAS", "chef_knife", "prop:sharp") in got
+    assert not [e for e in payload["edges"]
+                if e["rel"] in ("OWNED_BY", "HOLDS")]
+    near = [e for e in payload["edges"] if e["rel"] == "NEAR"]
+    assert near and all(isinstance(e["dist_cm"], float) for e in near)
+    assert all(e["dist_cm"] is None for e in payload["edges"]
+               if e["rel"] == "HAS")
+    assert [(n["id"], n["label"]) for n in payload["extra_nodes"]] == [
+        ("counter", "counter")]
+    pos = payload["extra_nodes"][0]["pos"]
+    assert len(pos) == 3 and all(isinstance(v, float) for v in pos)
+    json.dumps(payload)  # JSON-native, no numpy
+
+
+def test_graph_event_edges_match_builders():
+    from dashboard.server import _render_idle_frame
+    from graph.scene_graph import (DASHBOARD_EDGE_TYPES, build_ground_truth,
+                                   load_props)
+    from sim.world import load_scene
+
+    model, data = load_scene("kitchen")
+    props = load_props()
+    want = {(d["type"], a, b)
+            for a, b, d in build_ground_truth(
+                model, data, props).edges(data=True)
+            if d["type"] in DASHBOARD_EDGE_TYPES}
+    _, graph_ev = _render_idle_frame("default", {})
+    got = {(e["rel"], e["subj"], e["obj"])
+           for e in graph_ev["graph"]["edges"]}
+    assert got == want
+    assert ("ON", "apple", "plate") in got
+    json.dumps(E.to_jsonable(graph_ev))
+
+
 def test_proposal_feedback_ask_events_serialize():
     why = [{"rule": "r1", "verdict": "ASK", "hard": False, "t": 0.5,
             "origin": "seed", "reason": "why", "predicates": {"gap_cm": 1.0},

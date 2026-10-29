@@ -490,6 +490,9 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                     print(f"quarantine hit: {hit['detail']}")
             graph = graph_snapshot(model, job["data"], job["props"],
                                      perceived=job.get("perceived"))
+            from graph.scene_graph import attach_dashboard_edges
+            attach_dashboard_edges(graph, model, job["data"],
+                                   job["props"])
             if job.get("skip_check"):  # benchmark planner-only conditions
                 verdict = {"kind": "ALLOW", "findings": [],
                            "why_path": [], "feedback": None}

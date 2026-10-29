@@ -178,12 +178,22 @@ def test_reduce_and_summarize():
 
 
 def test_bench_smoke_veto_only(monkeypatch, tmp_path):
+    import loop.live as live_mod
     import planner.planner as planner_mod
 
     give = json.loads(
         (FIX / "plans" / "give_apple.json").read_text())["content"]
-    monkeypatch.setattr(planner_mod, "plan_instruction",
+    # live.py binds plan_instruction directly: stub the name it calls
+    # (the module-attr stub alone leaks a real API call whenever
+    # another test imported loop.live first). model_chat must stay
+    # silent throughout the smoke run.
+    monkeypatch.setattr(live_mod, "plan_instruction",
                         lambda *a, **k: give)
+
+    def _no_network(*a, **k):
+        raise AssertionError("smoke test reached model_chat")
+
+    monkeypatch.setattr(planner_mod, "model_chat", _no_network)
     scenario = _sc(id="smoke_wave", instruction="wave your arm")
     ctx = {"run_dir": tmp_path, "model": "stub"}
     rec = B.run_one(scenario, "veto_only", 1, ctx)

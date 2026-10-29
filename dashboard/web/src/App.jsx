@@ -3,10 +3,6 @@ import './App.css'
 
 const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
 
-// Display-only relation thresholds for the graph tab (not Sentinel's).
-const NEAR_M = 0.25
-const ABOVE_DZ = 0.05
-const ABOVE_XY = 0.12
 const GW = 460
 const GH = 420
 const GPAD = 34
@@ -47,8 +43,17 @@ function hazardTag(props) {
   return null
 }
 
-function dist3(a, b) {
-  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+const HAZARD_PROPS = [
+  'sharp',
+  'liquid',
+  'hot',
+  'electronic',
+  'fragile',
+  'medication',
+]
+
+function hasHazard(props) {
+  return (props || []).some((p) => HAZARD_PROPS.includes(p))
 }
 
 function findThreshold(params) {
@@ -64,7 +69,7 @@ function findThreshold(params) {
 function measuredLabel(w, people) {
   const rel = (w.relations || [])[0]
   const end = (id) =>
-    people.includes(id) ? `${id}_hand` : id
+    people.includes(id) ? `${id} hand` : id
   const p = w.predicates || {}
   const key =
     ['tip_cm', 'gap_cm'].find((k) => typeof p[k] === 'number') ||
@@ -174,6 +179,18 @@ function GraphTab({ graph, why, path }) {
   for (const [id, o] of Object.entries(graph.objects || {})) {
     nodes.push({ id, pos: o.pos, props: o.properties || [], person: false })
   }
+  for (const n of graph.extra_nodes || []) {
+    nodes.push({ id: n.id, pos: n.pos, props: [], person: false })
+  }
+  if (graph.gripper) {
+    nodes.push({
+      id: 'gripper',
+      pos: graph.gripper,
+      props: [],
+      person: false,
+      gripper: true,
+    })
+  }
   const people = Object.keys(graph.people || {})
   for (const pid of people) {
     const p = graph.people[pid]
@@ -183,21 +200,42 @@ function GraphTab({ graph, why, path }) {
   const pts = path && path.points ? path.points : []
   const { laid, X, Y } = layoutGraph(nodes, pts)
   const byId = Object.fromEntries(laid.map((n) => [n.id, n]))
-  const edges = []
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i]
-      const b = nodes[j]
-      const dz = Math.abs(a.pos[2] - b.pos[2])
-      const dxy = Math.hypot(a.pos[0] - b.pos[0], a.pos[1] - b.pos[1])
-      if (dz > ABOVE_DZ && dxy < ABOVE_XY) {
-        const top = a.pos[2] > b.pos[2] ? a : b
-        const bot = top === a ? b : a
-        edges.push({ a: byId[top.id], b: byId[bot.id], rel: 'ABOVE' })
-      } else if (dist3(a.pos, b.pos) < NEAR_M) {
-        edges.push({ a: byId[a.id], b: byId[b.id], rel: 'NEAR' })
+  // Real edges from the scene-graph builders (graph.edges): draw exactly
+  // those. nx ids map to laid nodes; person:/prop: endpoints never draw
+  // as lines (owner group + HAS sub-labels cover them).
+  const endNode = (id) => {
+    if (byId[id]) return byId[id]
+    if (id === 'bp:hand') return byId.gripper || null
+    if (id === 'bp:human_hand') {
+      for (const pid of people) {
+        if (byId[`${pid} hand`]) return byId[`${pid} hand`]
       }
     }
+    return null
+  }
+  const edges = []
+  const hasById = {}
+  const seenEdge = new Set()
+  for (const e of graph.edges || []) {
+    if (e.rel === 'HAS' && e.obj.startsWith('prop:') && byId[e.subj]) {
+      const list = hasById[e.subj] || (hasById[e.subj] = [])
+      list.push(e.obj.slice(5))
+      continue
+    }
+    const a = endNode(e.subj)
+    const b = endNode(e.obj)
+    if (!a || !b) continue
+    const key = `${e.rel}|${[a.id, b.id].sort().join('|')}`
+    if (seenEdge.has(key)) continue
+    seenEdge.add(key)
+    if (e.rel === 'NEAR' && !hasHazard(a.props) && !hasHazard(b.props)) {
+      continue
+    }
+    const label =
+      e.dist_cm === null || e.dist_cm === undefined
+        ? e.rel
+        : `${e.rel} ${e.dist_cm} cm`
+    edges.push({ a, b, label })
   }
   const whyEntries = (why || []).filter((w) => typeof w !== 'string')
   const hlNodes = new Set()
@@ -213,7 +251,15 @@ function GraphTab({ graph, why, path }) {
       }
       const a = byId[r.subj] || byId[`${r.subj} hand`]
       const b = byId[r.obj] || byId[`${r.obj} hand`]
-      if (a && b) hlEdges.push({ a, b, label: measuredLabel(w, people), wi })
+      if (a && b) {
+        hlEdges.push({
+          a,
+          b,
+          label: measuredLabel(w, people),
+          wi,
+          ask: w.verdict === 'ASK',
+        })
+      }
     }
   })
   const active = hlEdges.length > 0 || hlNodes.size > 0
@@ -233,18 +279,6 @@ function GraphTab({ graph, why, path }) {
         {firePx.map((p, i) => (
           <circle key={i} cx={p[0]} cy={p[1]} r={4} className="fire" />
         ))}
-        {pathPx.length > 0 && (
-          <g>
-            <rect
-              x={pathPx[0][0] - 5} y={pathPx[0][1] - 5}
-              width={10} height={10} className="gripper"
-              transform={`rotate(45 ${pathPx[0][0]} ${pathPx[0][1]})`}
-            />
-            <text x={pathPx[0][0] + 8} y={pathPx[0][1]} className="grip-label">
-              gripper
-            </text>
-          </g>
-        )}
         {edges.map((e, i) => (
           <g
             key={i} className="edge"
@@ -252,22 +286,41 @@ function GraphTab({ graph, why, path }) {
               ? 0.3
               : 1}
           >
-            <title>{e.rel}</title>
+            <title>{e.label}</title>
             <line x1={e.a.px} y1={e.a.py} x2={e.b.px} y2={e.b.py} />
             <text x={(e.a.px + e.b.px) / 2} y={(e.a.py + e.b.py) / 2}>
-              {e.rel}
+              {e.label}
             </text>
           </g>
         ))}
+        {people.map((pid) => {
+          const h = byId[`${pid} hand`]
+          const t = byId[`${pid} torso`]
+          if (!h || !t) return null
+          return (
+            <g key={pid}>
+              <line
+                x1={h.px} y1={h.py} x2={t.px} y2={t.py}
+                className="person-link"
+              />
+              <text
+                x={(h.px + t.px) / 2} y={(h.py + t.py) / 2 + 14}
+                className="person-cap"
+              >
+                tracked for hand-over + HALT rules
+              </text>
+            </g>
+          )
+        })}
         {hlEdges.map((e, i) => (
           <g key={`h${i}`}>
             <line
               x1={e.a.px} y1={e.a.py} x2={e.b.px} y2={e.b.py}
-              className="hledge"
+              className={e.ask ? 'hledge ask' : 'hledge'}
             />
             <text
               x={(e.a.px + e.b.px) / 2} y={(e.a.py + e.b.py) / 2 + e.wi * 12}
-              className="hedge-label"
+              className={e.ask ? 'hedge-label ask' : 'hedge-label'}
             >
               {e.label}
             </text>
@@ -281,7 +334,13 @@ function GraphTab({ graph, why, path }) {
           const hot = active && hlNodes.has(n.id)
           return (
             <g key={n.id} className="node" opacity={faded(n.id) ? 0.3 : 1}>
-              {n.person ? (
+              {n.gripper ? (
+                <rect
+                  x={n.px - 5} y={n.py - 5}
+                  width={10} height={10} className="gripper"
+                  transform={`rotate(45 ${n.px} ${n.py})`}
+                />
+              ) : n.person ? (
                 <rect
                   x={n.px - 5} y={n.py - 5}
                   width={10} height={10} className="person"
@@ -295,12 +354,10 @@ function GraphTab({ graph, why, path }) {
               <text x={lx} y={ly} textAnchor={anchor}>
                 {n.id}
               </text>
-              {!n.person && (
+              {!n.person && !n.gripper && (
                 <g className="has-sub">
-                  {n.props
-                    .filter((p) =>
-                      ['sharp', 'hot', 'liquid', 'electronic', 'medication', 'fragile'].includes(p),
-                    )
+                  {(hasById[n.id] || [])
+                    .filter((p) => HAZARD_PROPS.includes(p))
                     .map((p, k) => (
                       <g key={p}>
                         <line
@@ -322,6 +379,9 @@ function GraphTab({ graph, why, path }) {
           )
         })}
       </svg>
+      <p className="dim">
+        lines = scene relations · red = what the last verdict measured
+      </p>
       <p className="legend">
         <span style={{ color: '#d1242f' }}>● sharp</span>{' '}
         <span style={{ color: '#e8590c' }}>● hot</span>{' '}
@@ -833,7 +893,9 @@ export default function App() {
   const whyForGraph =
     whyRound !== null && rounds[whyRound] && rounds[whyRound].verdict
       ? rounds[whyRound].verdict.why_path
-      : null
+      : hlRound !== undefined
+        ? rounds[hlRound].verdict.why_path
+        : null
   const pathRound =
     whyRound !== null && rounds[whyRound] && rounds[whyRound].path
       ? whyRound

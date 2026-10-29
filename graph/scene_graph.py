@@ -72,6 +72,47 @@ def load_props(path: Path | None = None) -> dict:
 
 RELATION_TYPES = {EDGE_ON, EDGE_NEAR, EDGE_ABOVE, EDGE_INSIDE}
 
+DASHBOARD_EDGE_TYPES = (EDGE_ON, EDGE_NEAR, EDGE_ABOVE, EDGE_INSIDE,
+                        EDGE_HAS)
+
+
+def dashboard_payload(g: nx.MultiDiGraph, props: dict) -> dict:
+    """JSON-native {edges, extra_nodes} for the dashboard graph event. (D-06)
+
+    edges: the real ON/NEAR/ABOVE/INSIDE (with dist_cm) + HAS edges
+    from the builders ({subj, rel, obj, dist_cm}); OWNED_BY/HOLDS stay
+    server-side. extra_nodes: Object nodes the checker snapshot lacks
+    (the counter), with pos+label. Sorted for determinism.
+    """
+    edges = [{"subj": a, "rel": d["type"], "obj": b,
+              "dist_cm": d.get("dist_cm")}
+             for a, b, d in g.edges(data=True)
+             if d.get("type") in DASHBOARD_EDGE_TYPES]
+    edges.sort(key=lambda e: (e["rel"], e["subj"], e["obj"],
+                              e["dist_cm"] or 0.0))
+    known = set(props["objects"])
+    extra = [{"id": node, "label": attrs.get("label", node),
+              "pos": [float(v) for v in attrs["pos"]]}
+             for node, attrs in g.nodes(data=True)
+             if attrs.get("type") == NODE_OBJECT
+             and attrs.get("track_id", node) not in known
+             and "pos" in attrs]
+    extra.sort(key=lambda n: n["id"])
+    return {"edges": edges, "extra_nodes": extra}
+
+
+def attach_dashboard_edges(graph: dict, model, data,
+                           props: dict) -> dict:
+    """Merge the GT scene graph's dashboard payload into a snapshot. (D-06)
+
+    Built from sim state at both emission sites (run rounds + idle);
+    sam mode keeps sim-state relations (perceived-relation builders
+    are future work). Mutates and returns `graph`.
+    """
+    g = build_ground_truth(model, data, props)
+    graph.update(dashboard_payload(g, props))
+    return graph
+
 
 def recompute_relations(g: nx.MultiDiGraph, ts: float) -> int:
     """Replace all relation edges from node bbox3d attrs. (G-04)
