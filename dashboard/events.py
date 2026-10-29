@@ -109,10 +109,18 @@ def path_event(round_no: int, points: list, fires: list) -> dict:
             "points": to_jsonable(points), "fires": to_jsonable(fires)}
 
 
-def halt_event(t: float, dist_cm: float, what: str) -> dict:
-    """The HALT monitor froze the arm (person in path)."""
-    return {"type": HALT, "t": round(t, 2),
-            "dist_cm": round(dist_cm, 1), "what": what}
+def halt_event(t: float, dist_cm: float, what: str,
+               passive: bool = False) -> dict:
+    """The HALT monitor froze the arm (person in path).
+
+    passive=True (benchmark): the monitor would have fired but the
+    condition kept executing.
+    """
+    ev = {"type": HALT, "t": round(t, 2),
+          "dist_cm": round(dist_cm, 1), "what": what}
+    if passive:
+        ev["passive"] = True
+    return ev
 
 
 def clear_event(t: float, resumed_round: int) -> dict:
@@ -121,7 +129,7 @@ def clear_event(t: float, resumed_round: int) -> dict:
 
 
 def done_event(status: str, detail: dict | None = None) -> dict:
-    """Terminal run state: complete | BLOCK | ASK | error."""
+    """Terminal run state: complete | BLOCK | ASK | refused | error."""
     return {"type": DONE, "status": status,
             "detail": to_jsonable(detail or {})}
 

@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.21** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.22** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -251,11 +251,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** the wine-glass demo produces, validates and activates a new rule live.
 
 ### Phase 7: Benchmark and baselines (Nov 2–3)
-- [ ] **B-01** ~100 scenario YAMLs across categories (research/06), ≥ 30% safe controls, **labels frozen before the first run**
-- [ ] **B-02** Conditions: planner-only (naive), self-check, Muse Spark judge, Muse Wonder judge, Sentinel veto-only, **LLM × Sentinel loop**, ablations (graph relations off, no preflight), SAM vs ground truth
-- [ ] **B-03** Held-out split for the learner (seen vs unseen hazards)
-- [ ] **B-04** Run with 3 repeats; contributor-mode models for bulk; cache everything
-- [ ] **B-05** `RESULTS.md` + first-run record + "numbers that proved me wrong"
+- [ ] **B-01** `bench/scenarios/*.yaml` (~100, from ~25 seeds in `bench/seeds/` + deterministic `bench/variants.py`): id, category, preset/scene edits, instruction, label {safe, hazard, expected}. Categories: sharp hand-over, liquid near electronics, hot, medication/restricted, person in path (live), scene-text injection, fragile/edge, unknown object + ≥ 30% SAFE controls. `bench/labels.lock` (sha256) committed BEFORE the first run; runner refuses on mismatch
+- [ ] **B-02** `bench/run.py --condition`: naive, self_check, spark_judge, wonder_judge, veto_only (check, no replan/execution), **loop** (full LLM × Sentinel), loop_no_relations, loop_no_preflight (monitor only, no pre-check), loop_sam. Core 4 first: naive, veto_only, loop, spark_judge
+- [ ] **B-03** seen|unseen tag per scenario (unseen = fragile/edge + hazards with no seed rule); RESULTS reports the split
+- [ ] **B-04** 3 repeats; `muse-spark-1.3-contributor` for bulk; `bench/cache/` model-call cache by prompt hash; no-render fast path; resumable per-(scenario, condition, repeat) results; event log redirected to `bench/runs/`
+- [ ] **B-05** `bench/report.py` → `bench/RESULTS.md`: headline table, per-category + seen/unseen breakdown, frozen first-run record, "numbers that proved me wrong" (every loop mismatch + `bench/notes.md`)
 - **Done when:** the headline table is filled with real numbers.
 
 ### Phase 8: Deploy, docs, video, submit (Nov 3–4)
@@ -415,6 +415,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.19 | Oct 29 | Phase 6 spec: R-01 event log + incidents, R-02 Wonder proposer (fixed vocab), R-04 gate (replay/ratchet/preflight), R-05 versions + rollback + Rules tab; wine-glass demo goal |
 | v1.20 | Oct 29 | Phase 6 built: event log + Wonder proposer (soft+unfixable coercion) + gate (4 replay cases, ratchet) + learn/rollback CLIs + Rules tab + incident filing; 20 predicate vocabulary incl. held_near_object_property/object_near_edge |
 | v1.21 | Oct 29 | Camera cleanup: overlays deleted, "On the table" panel (hazard chips, also-line, hand-gripper distance; graph snapshot gains gripper), why-driven chip highlight, guaranteed non-overlapping graph labels |
+| v1.22 | Oct 29 | Phase 7 spec: B-01 seeds+variants+labels.lock, B-02 9 conditions (4 core), B-03 seen/unseen, B-04 cache+resume+contributor bulk, B-05 RESULTS.md; demo learned rule rolled back (seed rulebook for benchmark) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

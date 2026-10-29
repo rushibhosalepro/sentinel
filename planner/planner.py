@@ -150,7 +150,8 @@ def plan_instruction(instruction: str, facts: dict,
                      model: str | None = None,
                      effort: str | None = None,
                      note: str | None = None,
-                     system_prompt: str | None = None) -> str:
+                     system_prompt: str | None = None,
+                     log_path=None) -> str:
     """Call the planner model; returns the raw JSON content string.
 
     `model` is an L-01 alias ("spark", "spark-open") or a full Meta
@@ -165,6 +166,7 @@ def plan_instruction(instruction: str, facts: dict,
         kwargs["reasoning_effort"] = eff
     content, _, secs = model_chat(
         client, model=model_id, spec=spec, alias=alias, purpose="plan",
+        log_path=log_path,
         messages=[
             {"role": "system",
              "content": SYSTEM_PROMPT if system_prompt is None

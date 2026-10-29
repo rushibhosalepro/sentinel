@@ -341,6 +341,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         rounds = job.get("rounds", 0)
         trace: list[str] = list(job.get("trace", []))
         rounds_log: list[dict] = []  # D-01: per-round verdict records
+        max_rounds = job.get("max_rounds", MAX_REPLAN_ROUNDS)
         # L-03 hardening: quarantine every frame we see (sam runs
         # read the live frame; attack runs read the staged one).
         # --attack keeps ONLY the "planner sees the note" simulation.
@@ -412,7 +413,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 content = plan_instruction(job["instruction"], job["facts"],
                                            model=job.get("model"),
                                            note=round_note,
-                                           system_prompt=system)
+                                           system_prompt=system,
+                                           log_path=job.get("cost_log"))
             except Exception as e:  # noqa: BLE001 - reported, never raised
                 err = f"planner error: {e}"
                 trace.append(f"Round {attempt}: ERROR planner error")
@@ -429,7 +431,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 entry = _error_entry(attempt, model_name, t0, 0, err,
                                      latency=latency)
                 rounds_log.append(entry)
-                if rounds >= MAX_REPLAN_ROUNDS:
+                if rounds >= max_rounds:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
                                  "trace": trace, "rounds_log": rounds_log})
@@ -455,7 +457,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                     "instruction": job["instruction"], "round": attempt,
                     "graph": None, "motion": None, "findings": [],
                     "outcome": err})
-                if rounds >= MAX_REPLAN_ROUNDS:
+                if rounds >= max_rounds:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
                                  "trace": trace, "rounds_log": rounds_log})
@@ -467,6 +469,15 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 trace.append(f"feedback: {err}"[:80])
                 print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
                 continue
+            if job.get("reviewer") is not None:  # benchmark judges
+                ok, why = job["reviewer"](steps, job["facts"],
+                                          job["instruction"])
+                if not ok:
+                    trace.append(f"Round {attempt}: REFUSED {why}"[:80])
+                    results.put({"gen": job["gen"], "refused": why,
+                                 "rounds": rounds, "trace": trace,
+                                 "rounds_log": rounds_log})
+                    break
             if job.get("quarantine"):  # L-03: derived from scene text?
                 from loop.quarantine import scan_steps
                 hit = scan_steps(steps, job["quarantine"],
@@ -479,25 +490,29 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                     print(f"quarantine hit: {hit['detail']}")
             graph = graph_snapshot(model, job["data"], job["props"],
                                      perceived=job.get("perceived"))
-            try:
-                verdict = check(script["motion"], graph)
-            except Exception as e:  # noqa: BLE001 - reported, never raised
-                err = f"Sentinel error: {e}"
-                trace.append(f"Round {attempt}: ERROR Sentinel error")
-                entry = _error_entry(attempt, model_name, t0, len(steps),
-                                     err, latency=latency)
-                entry["graph"] = graph
-                rounds_log.append(entry)
-                learner_events.append_event({
-                    "kind": "build_surprise",
-                    "run_id": job.get("run_id"),
-                    "instruction": job["instruction"], "round": attempt,
-                    "graph": learner_events.compact_graph(graph),
-                    "motion": _motion_summary(script["motion"]),
-                    "findings": [], "outcome": err})
-                results.put({"gen": job["gen"], "error": err,
-                             "trace": trace, "rounds_log": rounds_log})
-                break
+            if job.get("skip_check"):  # benchmark planner-only conditions
+                verdict = {"kind": "ALLOW", "findings": [],
+                           "why_path": [], "feedback": None}
+            else:
+                try:
+                    verdict = check(script["motion"], graph)
+                except Exception as e:  # noqa: BLE001 - reported, never raised
+                    err = f"Sentinel error: {e}"
+                    trace.append(f"Round {attempt}: ERROR Sentinel error")
+                    entry = _error_entry(attempt, model_name, t0, len(steps),
+                                         err, latency=latency)
+                    entry["graph"] = graph
+                    rounds_log.append(entry)
+                    learner_events.append_event({
+                        "kind": "build_surprise",
+                        "run_id": job.get("run_id"),
+                        "instruction": job["instruction"], "round": attempt,
+                        "graph": learner_events.compact_graph(graph),
+                        "motion": _motion_summary(script["motion"]),
+                        "findings": [], "outcome": err})
+                    results.put({"gen": job["gen"], "error": err,
+                                 "trace": trace, "rounds_log": rounds_log})
+                    break
             rules = ",".join(dict.fromkeys(
                 f["rule"] for f in verdict["findings"]))
             entry = f"Round {attempt}: {verdict['kind']}" \
@@ -522,13 +537,15 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                        "closest": _closest_approach(script["motion"],
                                                    graph),
                        "findings": verdict["findings"],
-                       "outcome": verdict["kind"]}
+                       "outcome": verdict["kind"],
+                       "skipped_check": bool(job.get("skip_check"))}
             learner_events.append_event({"kind": "verdict", **ev_base})
             if any(f["rule"] == "unknown_object"
                    for f in verdict["findings"]):
                 learner_events.append_event(
                     {"kind": "unknown_object", **ev_base})
-            if not should_replan(verdict, rounds):
+            if job.get("verdict_final") or not should_replan(
+                    verdict, rounds, max_rounds):
                 trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
                              "script": script, "verdict": verdict,
@@ -669,7 +686,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   perception: str = "truth",
                   planner_model: str = "spark",
                   attack: str | None = None,
-                  sink=None, ask_handler=None) -> None:
+                  sink=None, ask_handler=None, render: bool = True,
+                  scene: dict | None = None,
+                  max_rounds: int | None = None,
+                  skip_check: bool = False, reviewer=None,
+                  passive_monitor: bool = False,
+                  cost_log=None, verdict_final: bool = False) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -680,6 +702,11 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     ask_handler (the dashboard's ASK registry) lets a final soft ASK wait
     for the owner's approve/deny instead of stopping; without one a final
     ASK stops as before.
+    Benchmark knobs (bench/run.py): render=False skips the mp4, scene
+    stages {objects: {id: pos}, person: {shift}} edits, max_rounds caps
+    replans, skip_check bypasses Sentinel, reviewer(steps, facts) may
+    refuse a plan, and passive_monitor records would-HALTs without
+    freezing.
     """
     import imageio.v2 as imageio
     from pathlib import Path
@@ -691,6 +718,17 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     if preset is not None:
         _apply_preset(model, data, None, preset)
         print(f"preset: {preset}")
+    if scene:
+        for oid, pos in (scene.get("objects") or {}).items():
+            adr = free_qposadr(model, oid)
+            data.qpos[adr:adr + 3] = pos
+        shift = (scene.get("person") or {}).get("shift")
+        if shift is not None:
+            for body in ("human_hand", "human_torso"):
+                mid = model.body_mocapid[model.body(body).id]
+                if mid >= 0:
+                    data.mocap_pos[mid] += np.array(shift, dtype=float)
+        mujoco.mj_forward(model, data)
     halt_params = rule_params()
     positions, perceived, quarantine = (None, None, {})
     if perception == "sam":
@@ -720,7 +758,11 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
            "valid_people": set(props["people"]), "props": props,
            "home_pos": home_pos, "home_quat": home_quat,
            "perceived": perceived, "model": planner_model,
-           "quarantine": quarantine, "run_id": run_id}
+           "quarantine": quarantine, "run_id": run_id,
+           "max_rounds": MAX_REPLAN_ROUNDS if max_rounds is None
+           else max_rounds,
+           "skip_check": skip_check, "reviewer": reviewer,
+           "cost_log": cost_log, "verdict_final": verdict_final}
     if attack == "scene-text":
         from perception.reader import stage_attack_frame
         job["attack_frame"] = stage_attack_frame(model, data, props)
@@ -776,6 +818,13 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             emit_rounds()
             emit(done_event("error", {"error": res["error"]}))
             raise SystemExit(1)
+        if "refused" in res:
+            print(f"refused by reviewer: {res['refused']} (not moving)")
+            jobs.put(None)
+            emit_rounds()
+            emit(done_event("refused", {"reason": res["refused"],
+                                        "rounds": res["rounds"]}))
+            raise SystemExit(1)
         steps, script = res["steps"], res["script"]
         verdict = res["verdict"]
         _print_plan(steps)
@@ -816,7 +865,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             else:
                 print(f"Sentinel: {verdict['kind']} (not moving)")
             jobs.put(None)
-            _render_idle_clip(model, data, out_path, fps, sink=sink)
+            if render:
+                _render_idle_clip(model, data, out_path, fps, sink=sink)
             emit(done_event(verdict["kind"],
                             {"trace": trace[-4:], "ask": ask}))
             raise SystemExit(1)
@@ -825,9 +875,13 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     _, script, rounds, trace, ask = take_result()
     dt = 1.0 / fps
     out = Path(out_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with RENDER_LOCK:
-        renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    if render:
+        out.parent.mkdir(parents=True, exist_ok=True)
+    if render:
+        with RENDER_LOCK:
+            renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    else:
+        renderer = None
     person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
               "face": None, "origin": None, "carrying": None, "f6": None}
     takers: list[tuple[str, bool]] = []
@@ -837,9 +891,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     lh, halt, held_now, clear_since = None, None, None, None
     f6_done = f6_at is None
     segments = script["segments"]
+    from contextlib import nullcontext
+    writer_ctx = imageio.get_writer(out, fps=fps, codec="libx264",
+                                    quality=8) if render \
+        else nullcontext(None)
     try:
-        with imageio.get_writer(out, fps=fps, codec="libx264",
-                                quality=8) as writer:
+        with writer_ctx as writer:
             while seg_i < len(segments):
                 guard += 1
                 if guard > 20000:
@@ -904,29 +961,41 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                             model, data, seg_motion, seg_tau, held_now,
                             props, halt_params)
                         if fire:
-                            halt = {"tau": seg_tau, "held": held_now,
-                                    "motion": seg_motion}
-                            clear_since = None
                             entry = (f"HALT person_in_path @ "
                                      f"t={vnow:.2f}s "
                                      f"({dist * 100:.0f} cm from {what})")
-                            trace.append(entry)
-                            print(f"HALT: {entry}")
-                            if sink is not None:
-                                from dashboard.events import halt_event
-                                emit(halt_event(
-                                    vnow, dist * 100.0, what))
-                            learner_events.append_event({
-                                "kind": "halt", "run_id": run_id,
-                                "instruction": instruction, "round": None,
-                                "graph": learner_events.compact_graph(
-                                    graph_snapshot(model, data, props)),
-                                "motion": _motion_summary(
-                                    script["motion"]),
-                                "findings": [],
-                                "outcome": {"t": round(vnow, 2),
-                                            "dist_cm": round(dist * 100.0, 1),
-                                            "near": what}})
+                            if passive_monitor:
+                                trace.append(f"would-{entry}")
+                                if sink is not None:
+                                    from dashboard.events import halt_event
+                                    emit(halt_event(vnow, dist * 100.0,
+                                                    what, passive=True))
+                            else:
+                                halt = {"tau": seg_tau, "held": held_now,
+                                        "motion": seg_motion}
+                                clear_since = None
+                                trace.append(entry)
+                                print(f"HALT: {entry}")
+                                if sink is not None:
+                                    from dashboard.events import (
+                                        halt_event)
+                                    emit(halt_event(
+                                        vnow, dist * 100.0, what))
+                                learner_events.append_event({
+                                    "kind": "halt", "run_id": run_id,
+                                    "instruction": instruction,
+                                    "round": None,
+                                    "graph":
+                                        learner_events.compact_graph(
+                                            graph_snapshot(model, data,
+                                                           props)),
+                                    "motion": _motion_summary(
+                                        script["motion"]),
+                                    "findings": [],
+                                    "outcome": {
+                                        "t": round(vnow, 2),
+                                        "dist_cm": round(dist * 100.0, 1),
+                                        "near": what}})
                 else:
                     if kind == "handover" and lh is not None \
                             and lh.f6 is not None:
@@ -990,7 +1059,15 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "perceived": perceived,
                                           "model": planner_model,
                                           "quarantine": quarantine,
-                                          "run_id": run_id})
+                                          "run_id": run_id,
+                                          "max_rounds":
+                                              MAX_REPLAN_ROUNDS
+                                              if max_rounds is None
+                                              else max_rounds,
+                                          "skip_check": skip_check,
+                                          "reviewer": reviewer,
+                                          "cost_log": cost_log,
+                                          "verdict_final": verdict_final})
                                 _, script, rounds, trace, ask = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
@@ -1002,10 +1079,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                     emit(clear_event(vnow, rounds))
                         else:
                             clear_since = None
-                renderer.update_scene(data, camera="demo")
-                video_frame = renderer.render()
-                writer.append_data(video_frame)
-                if sink is not None and frame_i % 3 == 0:
+                if renderer is not None:
+                    renderer.update_scene(data, camera="demo")
+                    video_frame = renderer.render()
+                    writer.append_data(video_frame)
+                if sink is not None and renderer is not None \
+                        and frame_i % 3 == 0:
                     from dashboard.events import (
                         encode_jpeg_b64,
                         frame_event,
@@ -1021,8 +1100,9 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                 vnow += dt
                 data.time = vnow
     finally:
-        with RENDER_LOCK:
-            renderer.close()
+        if renderer is not None:
+            with RENDER_LOCK:
+                renderer.close()
     jobs.put(None)
     hid = model.body(HAND_BODY).id
     took = {}
@@ -1032,7 +1112,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         print(f"final: {obj} {'taken' if ok else 'NOT taken'}, "
               f"hand-object gap {gap * 100:.1f} cm")
         took[obj] = {"taken": ok, "gap_cm": round(gap * 100.0, 1)}
-    print(f"saved {out}")
+    print(f"saved {out}" if render else "done (render off)")
     if sink is not None:
         from dashboard.events import done_event
         emit(done_event("complete", {"takers": took, "rounds": rounds,
