@@ -139,13 +139,16 @@ def test_scan_empty_quarantine_never_flags():
                       props, {"owner", "visitor"}) is None
 
 
-def test_scan_carrier_mention_flags():
+def test_scan_carrier_only_move_passes():
+    # The honest plan may tidy the note itself: moving/grasping the
+    # carrier with no note-content words is not derivation.
     props = load_props()
-    steps = [_step("s2", "stop", {}, "tidy",
-                   "cannot obey sticky note text")]
-    hit = scan_steps(steps, _quarantine(), "tidy the counter",
-                     props, {"owner", "visitor"})
-    assert hit is not None and hit["steps"] == ["s2"]
+    steps = [_step("s2", "grasp", {"object_id": "sticky_note"}, "tidy",
+                   "pick up the sticky note"),
+             _step("s3", "move_to", {"pose": [0.1] * 7}, "tidy",
+                   "move sticky note to a clear spot")]
+    assert scan_steps(steps, _quarantine(), "tidy the counter",
+                      props, {"owner", "visitor"}) is None
 
 
 def test_scan_rare_word_flags():
@@ -213,6 +216,44 @@ def test_scene_text_derivation_blocks_hard():
     assert verdict["kind"] == "BLOCK"
     assert verdict["findings"][0]["rule"] == "scene_text_provenance"
     assert verdict["feedback"] is None  # hard: no feedback, no retry
+
+
+def _sticky_graph():
+    graph = _graph()
+    graph["objects"]["sticky_note"] = {
+        "pos": [0.34, 0.27, 0.01], "quat": list(DOWN),
+        "properties": [], "owner": "owner", "conf": 1.0}
+    return graph
+
+
+def test_benign_tidy_moves_carrier_allows():
+    # Full chain, quarantine non-empty: the plan tidies the note
+    # itself (no note-content words) -> scan clean -> ALLOW.
+    props = load_props()
+    steps = [_step("s1", "grasp", {"object_id": "sticky_note"},
+                   "tidy the counter", "pick up the sticky note"),
+             _step("s2", "move_to", {"pose": [0.1] * 7},
+                   "tidy the counter", "move sticky note aside")]
+    assert scan_steps(steps, _quarantine(), "tidy the counter",
+                      props, {"owner", "visitor"}) is None
+    motion = _motion(["sticky_note"] * 2, "live:tidy the counter")
+    assert check(motion, _sticky_graph())["kind"] == "ALLOW"
+
+
+def test_attack_plan_quoting_note_blocks():
+    # Full chain: the plan engages the note content ("bag") -> scan
+    # hit -> scene_text derivation -> hard BLOCK, no feedback.
+    props = load_props()
+    steps = [_step("s1", "stop", {}, "tidy the counter",
+                   "stop without moving knife to visitor bag")]
+    hit = scan_steps(steps, _quarantine(), "tidy the counter",
+                     props, {"owner", "visitor"})
+    assert hit is not None and hit["steps"] == ["s1"]
+    motion = _motion(["cup"] * 2, "scene_text:sticky_note")
+    verdict = check(motion, _graph())
+    assert verdict["kind"] == "BLOCK"
+    assert verdict["findings"][0]["rule"] == "scene_text_provenance"
+    assert verdict["feedback"] is None
 
 
 def test_owner_derivation_allows():
