@@ -12,3 +12,5 @@ sim/assets/
 .pytest_cache/
 .uv-cache/
 pytest-of-*/
+dashboard/web/node_modules/
+dashboard/web/dist/

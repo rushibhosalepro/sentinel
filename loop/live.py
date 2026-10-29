@@ -243,38 +243,34 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         note = None
         rounds = job.get("rounds", 0)
         trace: list[str] = list(job.get("trace", []))
-        if job.get("attack_frame"):  # L-03 attack demo: read, quarantine
-            from loop.quarantine import (
-                attack_note,
-                project_props,
-                quarantine_for,
-            )
-            from perception.frames import HEIGHT, WIDTH
-            from perception.reader import read_scene_text
+        rounds_log: list[dict] = []  # D-01: per-round verdict records
+        # L-03 hardening: quarantine every frame we see (sam runs
+        # read the live frame; attack runs read the staged one).
+        # --attack keeps ONLY the "planner sees the note" simulation.
+        read_path = job.get("attack_frame")
+        if read_path is None and job.get("frame") is not None \
+                and "quarantine" not in job:
+            read_path = job["frame"]["path"]
+        attack_ctx = None
+        if read_path is not None:
+            from loop.quarantine import attack_note
             try:
-                texts = read_scene_text(job["attack_frame"],
-                                        WIDTH, HEIGHT)
+                job["quarantine"] = _read_quarantine(
+                    model, job["data"], job["props"], read_path)
             except Exception as e:  # noqa: BLE001 - reported, never raised
                 trace.append("quarantine: ERROR reader error")
                 results.put({"gen": job["gen"],
                              "error": f"reader error: {e}", "trace": trace})
                 continue
-            projected = project_props(model, job["data"], job["props"],
-                                      "front", WIDTH, HEIGHT)
-            job["quarantine"] = quarantine_for(texts, job["props"],
-                                               projected)
-            # Attack context persists across replan rounds (a VLM's
-            # context does); the round note is appended after it.
-            attack_ctx = attack_note(job["quarantine"]) \
-                if job["quarantine"] else None
             for o in job["facts"]["objects"]:
                 o["has_text"] = o["id"] in job["quarantine"]
             if job["quarantine"]:
                 trace.append("quarantine: " + ", ".join(
                     sorted(job["quarantine"])) + " has text on it")
-                print(f"quarantine: {job['quarantine']}")
-        else:
-            attack_ctx = None
+                if job.get("attack_frame"):
+                    # Attack context persists across replan rounds (a
+                    # VLM's context does); the round note follows it.
+                    attack_ctx = attack_note(job["quarantine"])
         conf_summary = None
         if "frame" in job:  # --perception sam: see before thinking
             from perception.perceive import perceive_frame
@@ -376,12 +372,18 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 f["rule"] for f in verdict["findings"]))
             entry = f"Round {attempt}: {verdict['kind']}" \
                 + (f" {rules}" if rules else "")
+            rounds_log.append({"round": attempt, "kind": verdict["kind"],
+                               "rules": rules.split(",") if rules else [],
+                               "findings": verdict["findings"],
+                               "feedback": verdict["feedback"],
+                               "graph": graph})
             if not should_replan(verdict, rounds):
                 trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
                              "script": script, "verdict": verdict,
                              "rounds": rounds, "trace": trace,
-                             "perceived": conf_summary})
+                             "perceived": conf_summary,
+                             "rounds_log": rounds_log})
                 break
             rounds += 1
             note = format_replan_note(verdict, attempt)
@@ -439,7 +441,7 @@ def _apply_preset(model, data, home, name: str) -> None:
 
 
 def _perceive_sync(model, data, props, tag: str = "live") -> tuple:
-    """Render + perceive one state; (positions, perceived, summary)."""
+    """Render + perceive one state; (positions, perceived, summary, path)."""
     from perception.frames import perception_frame, save_frame
     from perception.perceive import perceive_frame
     from sim.world import OUT_DIR
@@ -451,11 +453,27 @@ def _perceive_sync(model, data, props, tag: str = "live") -> tuple:
                for k, v in out["perceived"].items()}
     print(f"perceived {len(out['positions'])} objects from {path.name} "
           f"(min conf {min(summary.values()):.2f})")
-    return out["positions"], out["perceived"], summary
+    return out["positions"], out["perceived"], summary, path
+
+
+def _read_quarantine(model, data, props, image_path) -> dict:
+    """Run the quarantined reader on a saved frame ({oid: [texts]})."""
+    from loop.quarantine import project_props, quarantine_for
+    from perception.frames import HEIGHT, WIDTH
+    from perception.reader import read_scene_text
+
+    texts = read_scene_text(image_path, WIDTH, HEIGHT)
+    if not texts:
+        return {}
+    projected = project_props(model, data, props, "front", WIDTH, HEIGHT)
+    quarantine = quarantine_for(texts, props, projected)
+    if quarantine:
+        print(f"quarantine: {quarantine}")
+    return quarantine
 
 
 def _render_idle_clip(model, data, out_path: str, fps: int = 30,
-                      seconds: float = 3.0) -> None:
+                      seconds: float = 3.0, sink=None) -> None:
     """Save a static clip: proof the robot did not move (BLOCK demo)."""
     import imageio.v2 as imageio
     from pathlib import Path
@@ -468,9 +486,18 @@ def _render_idle_clip(model, data, out_path: str, fps: int = 30,
     try:
         with imageio.get_writer(out, fps=fps, codec="libx264",
                                 quality=8) as writer:
-            for _ in range(int(fps * seconds)):
+            n = int(fps * seconds)
+            for i in range(n):
                 renderer.update_scene(data, camera="demo")
-                writer.append_data(renderer.render())
+                frame = renderer.render()
+                writer.append_data(frame)
+                if sink is not None and i % max(n // 5, 1) == 0:
+                    from dashboard.events import (
+                        encode_jpeg_b64,
+                        frame_event,
+                    )
+                    sink(frame_event(encode_jpeg_b64(frame), [], "truth",
+                                     i / fps))
     finally:
         renderer.close()
     print(f"saved {out} (static: Sentinel refused to move)")
@@ -481,7 +508,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   f6_at: float | None = None,
                   perception: str = "truth",
                   planner_model: str = "spark",
-                  attack: str | None = None) -> None:
+                  attack: str | None = None,
+                  sink=None) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -501,15 +529,21 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         _apply_preset(model, data, None, preset)
         print(f"preset: {preset}")
     halt_params = rule_params()
-    positions, perceived, _ = (None, None, None)
+    positions, perceived, quarantine = (None, None, {})
     if perception == "sam":
         try:
-            positions, perceived, _ = _perceive_sync(
+            positions, perceived, _, frame_path = _perceive_sync(
                 model, data, props)
+            quarantine = _read_quarantine(model, data, props, frame_path)
         except Exception as e:  # noqa: BLE001 - reported, never raised
             print(f"perception error: {e} (not moving)")
+            if sink is not None:
+                from dashboard.events import done_event
+                sink(done_event("error",
+                                {"error": f"perception error: {e}"}))
             raise SystemExit(1)
-    facts = scene_facts(model, data, props, perceived=positions)
+    facts = scene_facts(model, data, props, perceived=positions,
+                        quarantine=set(quarantine))
     hand_id = model.body("hand").id
     home_pos = data.xpos[hand_id].copy()
     home_quat = data.xquat[hand_id].copy()
@@ -521,35 +555,57 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
            "data": data, "valid_ids": set(props["objects"]),
            "valid_people": set(props["people"]), "props": props,
            "home_pos": home_pos, "home_quat": home_quat,
-           "perceived": perceived, "model": planner_model}
+           "perceived": perceived, "model": planner_model,
+           "quarantine": quarantine}
     if attack == "scene-text":
         from perception.reader import stage_attack_frame
         job["attack_frame"] = stage_attack_frame(model, data, props)
         print(f"attack staged: {job['attack_frame'].name}")
     jobs.put(job)
 
+    def emit(event):
+        if sink is not None:
+            sink(event)
+
     def take_result():
+        from dashboard.events import (
+            done_event,
+            graph_event,
+            plan_event,
+            verdict_event,
+            why_path_for,
+        )
         res = results.get()
         if "error" in res:
             if res.get("trace"):
                 print(" -> ".join(res["trace"]))
             print(f"{res['error']} (not moving)")
             jobs.put(None)
+            emit(done_event("error", {"error": res["error"]}))
             raise SystemExit(1)
         steps, script = res["steps"], res["script"]
         verdict = res["verdict"]
         _print_plan(steps)
         print(_motion_summary(script["motion"]))
-        if res.get("trace"):
-            print(" -> ".join(res["trace"]))
+        trace = list(res.get("trace", []))
+        if trace:
+            print(" -> ".join(trace))
         for f in verdict["findings"]:
             print(f"  ! {f['rule']}: {f['detail']}")
+        emit(plan_event(steps, res["rounds"]))
+        for entry in res.get("rounds_log", []):
+            emit(graph_event(entry["graph"]))
+            emit(verdict_event(entry["round"], entry["kind"],
+                               entry["findings"], entry["feedback"],
+                               why_path_for(trace, entry["round"])))
         if verdict["kind"] != "ALLOW":
             print(f"Sentinel: {verdict['kind']} (not moving)")
             jobs.put(None)
-            _render_idle_clip(model, data, out_path, fps)
+            _render_idle_clip(model, data, out_path, fps, sink=sink)
+            emit(done_event(verdict["kind"],
+                            {"trace": trace[-4:]}))
             raise SystemExit(1)
-        return steps, script, res["rounds"], list(res.get("trace", []))
+        return steps, script, res["rounds"], trace
 
     _, script, rounds, trace = take_result()
     dt = 1.0 / fps
@@ -560,6 +616,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
               "face": None, "origin": None, "carrying": None, "f6": None}
     takers: list[tuple[str, bool]] = []
     vnow, last_check = 0.0, -1.0
+    frame_i = 0
     seg_i, seg_k, guard = 0, 0, 0
     lh, halt, held_now, clear_since = None, None, None, None
     f6_done = f6_at is None
@@ -639,6 +696,10 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                      f"({dist * 100:.0f} cm from {what})")
                             trace.append(entry)
                             print(f"HALT: {entry}")
+                            if sink is not None:
+                                from dashboard.events import halt_event
+                                emit(halt_event(
+                                    vnow, dist * 100.0, what))
                 else:
                     if kind == "handover" and lh is not None \
                             and lh.f6 is not None:
@@ -659,19 +720,31 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                     print("HALT: replan budget exhausted "
                                           "(arm frozen)")
                                     jobs.put(None)
+                                    if sink is not None:
+                                        from dashboard.events import (
+                                            done_event,
+                                        )
+                                        emit(done_event(
+                                            "error",
+                                            {"error": "HALT replan budget "
+                                                      "exhausted"}))
                                     raise SystemExit(1)
                                 scratch = mujoco.MjData(model)
                                 mujoco.mj_copyData(scratch, model, data)
-                                positions, perceived, _ = (None, None, None)
+                                quarantine = {}
+                                positions, perceived = (None, None)
                                 if perception == "sam":
-                                    positions, perceived, _ = \
+                                    positions, perceived, _, halt_path = \
                                         _perceive_sync(model, data, props,
                                                        tag="live_halt")
+                                    quarantine = _read_quarantine(
+                                        model, data, props, halt_path)
                                 facts = scene_facts(
                                     model, data, props,
                                     reaching=person["active"],
                                     holding=halt["held"],
-                                    perceived=positions)
+                                    perceived=positions,
+                                    quarantine=set(quarantine))
                                 rounds_start = rounds + 1
                                 trace.append(
                                     f"clear {CLEAR_S:.0f}s -> fresh plan "
@@ -688,29 +761,53 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "rounds": rounds_start,
                                           "trace": trace,
                                           "perceived": perceived,
-                                          "model": planner_model})
+                                          "model": planner_model,
+                                          "quarantine": quarantine})
                                 _, script, rounds, trace = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
                                 halt, held_now = None, None
                                 clear_since = None
                                 print(f"resumed at t={vnow:.2f}s")
+                                if sink is not None:
+                                    from dashboard.events import clear_event
+                                    emit(clear_event(vnow, rounds))
                         else:
                             clear_since = None
                 renderer.update_scene(data, camera="demo")
-                writer.append_data(renderer.render())
+                video_frame = renderer.render()
+                writer.append_data(video_frame)
+                if sink is not None and frame_i % 3 == 0:
+                    from dashboard.events import (
+                        encode_jpeg_b64,
+                        frame_event,
+                        project_boxes,
+                    )
+                    boxes = project_boxes(
+                        model, data, props, "demo", WIDTH, HEIGHT,
+                        perceived if perception == "sam" else None)
+                    emit(frame_event(
+                        encode_jpeg_b64(video_frame), boxes,
+                        "sam" if perception == "sam" else "truth", vnow))
+                frame_i += 1
                 vnow += dt
                 data.time = vnow
     finally:
         renderer.close()
     jobs.put(None)
     hid = model.body(HAND_BODY).id
+    took = {}
     for obj, ok in takers:
         gap = float(np.linalg.norm(
             data.xpos[hid] - data.xpos[model.body(obj).id]))
         print(f"final: {obj} {'taken' if ok else 'NOT taken'}, "
               f"hand-object gap {gap * 100:.1f} cm")
+        took[obj] = {"taken": ok, "gap_cm": round(gap * 100.0, 1)}
     print(f"saved {out}")
+    if sink is not None:
+        from dashboard.events import done_event
+        emit(done_event("complete", {"takers": took, "rounds": rounds,
+                                     "duration_s": round(vnow, 2)}))
 
 
 def main() -> None:
