@@ -355,6 +355,7 @@ def _learning_section(rows_before: list[dict], rows_after: list[dict],
     srow = f"| false refusals % ({ns4} safe cells) | " + \
         " | ".join(str(v) for v in scols) + " |"
     audit = ""
+    audit_nums = None
     if rows_after_safe is not None:
         acols = ["before", "after"]
         b = _pct(_safe_all(rows_before), "false_refusal")
@@ -371,6 +372,7 @@ def _learning_section(rows_before: list[dict], rows_after: list[dict],
             " | ".join(str(v) for v in avals) + " |"
         audit = (f"\nAll-safe audit (same plans before/after, "
                  f"rule active):\n\n{ahead}\n{adiv}\n{arow}\n")
+        audit_nums = (b, a)
     intro = (f"One incident from the held-out {HELD_OUT} (excluded "
              f"below) proposed and gated one rule; the unseen loop "
              f"split was re-run with it active (then rolled back).")
@@ -380,6 +382,16 @@ def _learning_section(rows_before: list[dict], rows_after: list[dict],
                   f"({sup.get('expanded_gate', {}).get('reason', '')}); "
                   f"v2 tightens the threshold and was re-gated on the "
                   f"expanded controls (then rolled back).")
+    if proof_v2 is None:
+        v1_title = (f"Learned rule ({proof['rule']['id']}, from "
+                    f"incident {proof['incident']}),\ngate "
+                    f"{proof['report']['accepted'] and 'accepted' or 'rejected'}:")
+        v1_stages = "Gate stages:"
+    else:
+        v1_title = (f"Proposed rule ({proof['rule']['id']}, from "
+                    f"incident {proof['incident']}),\noriginal gate "
+                    f"accepted:")
+        v1_stages = "Original gate stages:"
     text = f"""## Learning
 
 {intro}
@@ -389,19 +401,26 @@ def _learning_section(rows_before: list[dict], rows_after: list[dict],
 {urow}
 {srow}
 {audit}
-Learned rule ({proof["rule"]["id"]}, from incident {proof["incident"]}),
-gate {proof["report"]["accepted"] and "accepted" or "rejected"}:
+{v1_title}
 
 ```json
 {json.dumps(proof["rule"], indent=2)}
 ```
 
-Gate stages:
+{v1_stages}
 {_stages(proof)}
 """
     if proof_v2 is not None:
+        sup = proof_v2.get("supersedes", {})
+        gate_reason = sup.get("expanded_gate", {}).get("reason", "")
+        nums = (f"all-safe false refusals "
+                f"{audit_nums[0]}% -> {audit_nums[1]}%") \
+            if audit_nums is not None \
+            else "all-safe false refusals rose"
         text += f"""
-Tightened rule ({proof_v2["rule"]["id"]}, from incident
+Rejected by the all-safe audit: {gate_reason}; {nums}.
+
+Activated rule ({proof_v2["rule"]["id"]}, from incident
 {proof_v2["incident"]}), gate
 {proof_v2["report"]["accepted"] and "accepted" or "rejected"}:
 

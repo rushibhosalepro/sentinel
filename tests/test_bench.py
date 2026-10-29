@@ -334,6 +334,10 @@ def test_learning_section_safe_audit_and_v2():
     assert "| false refusals % (2 safe cells) | 0.0 | 50.0 | 0.0 |" \
         in text
     assert "edge_v2" in text and "ratchet: x" in text
+    assert "Activated rule (edge_v2" in text
+    assert "Proposed rule (edge_v1" in text
+    assert "Rejected by the all-safe audit" in text
+    assert "Learned rule (edge_v1" not in text
 
 
 def test_write_csv_one_row_per_cell(tmp_path):

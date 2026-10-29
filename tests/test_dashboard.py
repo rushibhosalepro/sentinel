@@ -373,7 +373,7 @@ def test_examples_endpoint_serves_chips():
     app = create_app(runner=_run_plan_done)
     with TestClient(app) as client:
         doc = client.get("/examples").json()
-        assert len(doc["examples"]) == 6
+        assert len(doc["examples"]) == 11
         by_id = {c["id"]: c for c in doc["examples"]}
         assert {c["group"] for c in doc["examples"]} == {
             "safe", "tricky", "attacks"}

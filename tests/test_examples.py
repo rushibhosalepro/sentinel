@@ -50,7 +50,7 @@ def _replay(example):
 
 def test_recorded_chip_plans_replay_expected_verdicts():
     doc = json.loads((FIX / "examples.json").read_text())
-    assert len(doc["examples"]) == 6
+    assert len(doc["examples"]) == 11
     for ex in doc["examples"]:
         assert ex["preset"] in PRESETS, ex["id"]
         assert ex["prompt"], ex["id"]
