@@ -47,10 +47,12 @@ def graph_snapshot(model, data, props: dict,
                                 spec.get("properties", [])),
                             "owner": spec.get("owner"),
                             "conf": float(p["conf"])}
+    counter = None
     try:
         gid = model.geom("counter_top").id
         cx, cy = (float(v) for v in data.geom_xpos[gid][:2])
         sx, sy = (float(v) for v in model.geom_size[gid][:2])
+        counter = {"x": [cx - sx, cx + sx], "y": [cy - sy, cy + sy]}
         for node in objects.values():
             x, y = float(node["pos"][0]), float(node["pos"][1])
             node["edge_cm"] = round(max(0.0, min(x - (cx - sx),
@@ -75,5 +77,7 @@ def graph_snapshot(model, data, props: dict,
         graph["gripper"] = data.xpos[gid].tolist()
     except Exception:  # noqa: BLE001 - scene without a robot hand
         pass
+    if counter is not None:
+        graph["counter"] = counter
     graph["safe_spot_pour"] = find_safe_spot(model, data, graph)
     return graph

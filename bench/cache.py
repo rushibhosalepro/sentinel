@@ -19,11 +19,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = REPO_ROOT / "bench" / "cache"
 
 _lock = threading.Lock()
+_local = threading.local()
 
 
-def cache_key(model: str, kwargs: dict) -> str:
-    """sha256 over model + the request payload (stable JSON)."""
+def set_repeat(repeat: int) -> None:
+    """Repeat context for cache keys (bench/run_one sets this per cell)."""
+    _local.repeat = repeat
+
+
+def current_repeat() -> int:
+    return getattr(_local, "repeat", 1)
+
+
+def cache_key(model: str, kwargs: dict, repeat: int = 1) -> str:
+    """sha256 over model + the request payload (stable JSON).
+
+    B-06: r1 keeps the legacy key (1029-1226 r1 stays reproducible);
+    r2+ mix the repeat in so repeats are independent model calls.
+    """
     payload = {"model": model}
+    if repeat != 1:
+        payload["repeat"] = repeat
     for k in ("messages", "response_format", "reasoning_effort",
               "temperature", "max_tokens"):
         if k in kwargs:
@@ -57,14 +73,19 @@ def log_cached(cost_path: Path, alias: str, model: str, purpose: str,
 
 def cached_chat(client, *, model: str, spec: dict, alias: str,
                 purpose: str, log_path=None, cache_dir=None,
-                tries: int = 4, **kwargs):
-    """chat() with a prompt-hash cache. Returns (content, usage, secs)."""
+                tries: int = 4, repeat: int | None = None, **kwargs):
+    """chat() with a prompt-hash cache. Returns (content, usage, secs).
+
+    `repeat` defaults to the thread-local repeat context (set_repeat).
+    """
     from planner.model_client import chat as model_chat
 
     cache_dir = Path(cache_dir) if cache_dir else CACHE_DIR
     if log_path is None:
         log_path = _cost_path(cache_dir)
-    key = cache_key(model, kwargs)
+    if repeat is None:
+        repeat = current_repeat()
+    key = cache_key(model, kwargs, repeat)
     path = cache_dir / f"{key}.json"
     with _lock:
         if path.exists():

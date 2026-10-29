@@ -498,7 +498,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                            "why_path": [], "feedback": None}
             else:
                 try:
-                    verdict = check(script["motion"], graph)
+                    verdict = check(script["motion"], graph,
+                                instruction=job["instruction"])
                 except Exception as e:  # noqa: BLE001 - reported, never raised
                     err = f"Sentinel error: {e}"
                     trace.append(f"Round {attempt}: ERROR Sentinel error")

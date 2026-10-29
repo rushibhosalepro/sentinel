@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.26** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.27** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -258,6 +258,13 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [ ] **B-03** seen|unseen tag per scenario (unseen = fragile/edge + hazards with no seed rule); RESULTS reports the split
 - [ ] **B-04** 3 repeats; `muse-spark-1.3-contributor` for bulk; `bench/cache/` model-call cache by prompt hash; no-render fast path; resumable per-(scenario, condition, repeat) results; event log redirected to `bench/runs/`
 - [ ] **B-05** `bench/report.py` → `bench/RESULTS.md`: headline table, per-category + seen/unseen breakdown, frozen first-run record, "numbers that proved me wrong" (every loop mismatch + `bench/notes.md`)
+- [ ] **B-06** Independent repeats: repeat index in the bench cache key (r1 keeps the legacy key, r2/r3 get fresh keys); new 4-condition × 3-repeat run; RESULTS reports mean ± stdev over repeats and states plainly that 1029-1226 r2/r3 were mostly cache replays
+- [ ] **B-07** Honest latency/cost: report.py derives time/$ from uncached model calls only, shows the uncached call count per condition, notes it under the table; conditions are never compared on cache hits
+- [ ] **B-08** Safe pour: tilt keeps orientation exact, accepts pos_err ≤ 2.5 cm for tilt only (measured solver plateau ≈ 2.0 cm on the recorded pour plans, so 1 cm still fails; the mouth may shift, the angle keeps ORI_TOL); solve_pose now converges position AND orientation before breaking (the old pos-only break failed ORI_TOL once tolerance loosened); pinned test that the recorded pour_default plan builds; pour controls re-run
+- [ ] **B-09** Test isolation: tests/conftest.py guard fails any test making a real (non-loopback) network call at the httpx layer
+- [ ] **B-10** Typo'd objects: instruction names an object missing from the graph while the plan acts on a near-match → ASK "did you mean apple?"; pinned test; unknown_object re-run
+- [ ] **B-11** Learner proof on unseen hazards: ONE incident from cup_to_edge v0 (held out) → learner.learn (new `release_near_edge` vocabulary predicate; no seed rule uses it, edge_placement stays unseen) → re-run the unseen split for loop with the learned rule active (all variants except v0) → RESULTS "Learning" section (unseen unsafe-exec + control false refusals, before → after) → rollback
+- [ ] **B-12** Regenerate RESULTS.md + bench/results.csv from the new run, append surprises to bench/notes.md, tick B-01..B-05 with the real numbers; labels.lock byte-identical (runner refuses otherwise)
 - **Done when:** the headline table is filled with real numbers.
 
 ### Phase 8: Deploy, docs, video, submit (Nov 3–4)
@@ -388,6 +395,9 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | Oct 28 | Live rules are a `live` scope in the rulebook, skipped by check() | One rulebook, two evaluators: static pre-check vs live monitor; HALT verdicts never feed the planner |
 | Oct 28 | F6 tracks the live gripper, then auto-retreats | Guarantees a mid-carry intercept for the HALT demo regardless of plan shape; retreat unblocks the 1 s clear |
 | Oct 28 | Monitor suppressed during expected handover contact | Post-offer hand approach is the task, not an intrusion; intrusion there is a known blind spot |
+| Oct 29 | Rep run re-executes r1 (cache-hit plans, fixed code) + fresh r2/r3 | Mean ± spread needs all repeats under one code version; copied r1 cells would mix pre-fix behaviour into the average |
+| Oct 29 | `release_near_edge` joins the predicate vocabulary (no seed rule) | Cup/sponge have no properties, so no vocabulary combination can express "released at the edge"; without it the learner proof is impossible and Wonder must no_rule. Edge_placement stays unseen (unseen = no seed rule) |
+| Oct 29 | Spread = stdev across r1..r3; time/$ medians over uncached cells only | n=3 stdev is the honest spread; cached cells (0 s, $0) must not dilute the latency/cost comparison |
 
 ---
 
@@ -422,6 +432,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.24 | Oct 29 | Phase 8a spec: D-07 split view (/ vs /debug, naive vs Sentinel lanes, /ws-split, results strip, split mp4s), F-01 Modal + guardrails (queue, rate limit, budget, presets-only, health) |
 | v1.25 | Oct 29 | Phase 8a built: D-07 done (split lanes live, 3 mp4s + 3 page screenshots, strip live); F-01 code done (modal_app.py syntax-checked, guardrails pinned, README Try-it) — first deploy + public URL pending (Modal CLI present but unauthenticated; needs `modal token new`); 325 tests green |
 | v1.26 | Oct 29 | F-01 done: authenticated Modal, secret created, deployed (modal_app.py .env-before-add_local_dir fix), public URL live and verified end to end (page + sticky split: A frames + done, B BLOCK) |
+| v1.27 | Oct 29 | Phase 7 fixes spec: B-06 independent repeats, B-07 uncached-only time/$, B-08 pour tilt tolerance, B-09 conftest network guard, B-10 typo ASK, B-11 learner proof (+release_near_edge vocab), B-12 regenerate + tick with numbers |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

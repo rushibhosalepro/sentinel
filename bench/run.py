@@ -79,11 +79,13 @@ def _reduce(events: list[dict]) -> dict:
 
 def run_one(scenario: dict, condition: str, repeat: int, ctx: dict) -> dict:
     """Run one cell; write the result file; return the record."""
+    from bench import cache as bench_cache
     from bench.evaluate import rebuild_motion
     from bench.prompts import make_reviewer
     from dashboard.events import to_jsonable
     from loop.live import _run_headless
 
+    bench_cache.set_repeat(repeat)  # B-06: independent repeats per thread
     run_dir = ctx["run_dir"]
     stem = f"{condition}__{scenario['id']}__r{repeat}"
     out_path = run_dir / f"{stem}.json"
@@ -150,6 +152,9 @@ def main(argv=None) -> int:
     parser.add_argument("--model", default="muse-spark-1.3-contributor")
     parser.add_argument("--filter", default=None,
                         help="only scenario ids containing this substring")
+    parser.add_argument("--only-ids", default=None,
+                        help="comma-separated exact scenario ids (B-11 "
+                        "unseen-split reruns)")
     parser.add_argument("--run-id", default=None)
     args = parser.parse_args(argv)
     conditions = args.condition or CORE
@@ -160,6 +165,13 @@ def main(argv=None) -> int:
     scenarios = load_scenarios()
     if args.filter:
         scenarios = [s for s in scenarios if args.filter in s["id"]]
+    if args.only_ids:
+        want = {i.strip() for i in args.only_ids.split(",") if i.strip()}
+        scenarios = [s for s in scenarios if s["id"] in want]
+        missing = want - {s["id"] for s in scenarios}
+        if missing:
+            print(f"unknown scenario ids: {sorted(missing)}")
+            return 2
     if not scenarios:
         print("no scenarios selected")
         return 2

@@ -61,6 +61,38 @@ def _rules():
     return load_rulebook()
 
 
+def _edge_rule():
+    return {"id": "t_edge",
+            "when": {"release_near_edge": {"edge_cm": 8.0}},
+            "unless": {}, "verdict": "ASK", "hard": False,
+            "fixable": False, "constraint_hint": None,
+            "reason": "test edge release"}
+
+
+def _edge_graph(cup_pos):
+    g = _graph()
+    g["counter"] = {"x": [-0.25, 0.85], "y": [-0.35, 0.35]}
+    g["objects"]["cup"]["pos"] = list(cup_pos)
+    return g
+
+
+def _cup_release():
+    # Release pos is graph-anchored (carried_point follows the object).
+    return _motion([[0.83, 0.0, 0.15, DOWN], [0.83, 0.0, 0.30, DOWN]],
+                   ["cup", None])
+
+
+def test_release_near_edge_fires_at_edge_only():
+    assert check(_cup_release(), _edge_graph([0.83, 0.0, 0.04]),
+                 [_edge_rule()])["kind"] == "ASK"
+    assert check(_cup_release(), _edge_graph([0.30, 0.0, 0.04]),
+                 [_edge_rule()])["kind"] == "ALLOW"
+    assert check(_cup_release(), _edge_graph([1.00, 0.0, 0.50]),
+                 [_edge_rule()])["kind"] == "ALLOW"  # off-counter
+    assert check(_cup_release(), _graph(),
+                 [_edge_rule()])["kind"] == "ALLOW"  # no bounds
+
+
 def test_allow_when_nothing_fires():
     m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow")
     v = check(m, _graph(), _rules())

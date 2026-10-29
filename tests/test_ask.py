@@ -42,7 +42,7 @@ class _Handler:
 def _stub(monkeypatch, verdict):
     monkeypatch.setattr(live, "plan_instruction",
                         lambda *a, **k: _content("give_apple.json"))
-    monkeypatch.setattr(live, "check", lambda m, g: verdict)
+    monkeypatch.setattr(live, "check", lambda m, g, **k: verdict)
 
 
 def _log(tmp_path):

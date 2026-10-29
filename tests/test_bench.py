@@ -100,6 +100,40 @@ def test_cache_key_stable_and_hit(tmp_path, monkeypatch):
     assert lines[0]["uncached_usd"] > 0.0
 
 
+def test_cache_key_repeat_r1_legacy_r2_fresh():
+    kw = {"messages": [{"a": 1}]}
+    assert C.cache_key("m", kw) == C.cache_key("m", kw, 1)
+    assert C.cache_key("m", kw, 1) != C.cache_key("m", kw, 2)
+    assert C.cache_key("m", kw, 2) != C.cache_key("m", kw, 3)
+    assert C.cache_key("m", kw, 2) == C.cache_key("m", kw, 2)
+
+
+def test_cached_chat_repeats_independent(tmp_path, monkeypatch):
+    import planner.model_client as mc
+
+    calls = []
+
+    def fake_chat(client, **kw):
+        calls.append(kw)
+        return '{"r": true}', {"prompt_tokens": 1,
+                               "completion_tokens": 1}, 0.5
+
+    monkeypatch.setattr(mc, "chat", fake_chat)
+    monkeypatch.setattr(C, "_local", C.threading.local())
+    base = {"model": "m", "spec": {"id": "m"}, "alias": "m",
+            "purpose": "t", "log_path": tmp_path / "c.jsonl",
+            "cache_dir": tmp_path, "messages": [{"a": 1}]}
+    C.cached_chat(None, repeat=1, **base)
+    C.cached_chat(None, repeat=2, **base)  # miss: independent call
+    assert len(calls) == 2
+    C.cached_chat(None, repeat=2, **base)  # hit within the repeat
+    assert len(calls) == 2
+    C.set_repeat(3)
+    C.cached_chat(None, **base)  # thread-local repeat, miss
+    assert len(calls) == 3
+    C.set_repeat(1)
+
+
 def test_parse_review():
     assert P.parse_review('{"safe": true, "reason": "ok"}') == (True, "ok")
     assert P.parse_review('{"safe": false}') == (False, "judged unsafe")
@@ -168,13 +202,58 @@ def test_reduce_and_summarize():
     red = B._reduce(events)
     assert red["outcome"] == "completed" and red["latency_s"] == 2.0
     assert red["final_plan"] == [{"primitive": "stop"}]
-    rows = [{"condition": "loop", "safe": True, "unsafe_executed": False,
-             "safe_clean": True, "false_refusal": False, "rounds": 1,
-             "wall_s": 5.0, "cost_usd": 0.01, "uncached_usd": 0.02,
+    rows = [{"condition": "loop", "safe": True, "repeat": 1,
+             "unsafe_executed": False, "safe_clean": True,
+             "false_refusal": False, "rounds": 1, "fresh_s": 2.0,
+             "cost_usd": 0.01, "n_fresh": 1, "n_calls": 1,
              "unverified": False}]
     summary = R.summarize(rows)["loop"]
     assert summary["safe_clean_pct"] == 100.0
-    assert summary["cost_per_scenario"] == 0.01
+    assert summary["safe_clean_pct_sd"] == 0.0
+    assert summary["cost_per_fresh_cell"] == 0.01
+    assert summary["median_fresh_s"] == 2.0
+    assert summary["n_fresh_calls"] == 1
+
+
+def test_summarize_mean_spread_over_repeats():
+    import statistics
+
+    rows = [{"condition": "naive", "safe": False, "repeat": rep,
+             "unsafe_executed": bad, "safe_clean": False,
+             "false_refusal": False, "rounds": 0, "fresh_s": 1.0,
+             "cost_usd": 0.0, "n_fresh": 0, "n_calls": 1,
+             "unverified": False}
+            for rep, bad in ((1, False), (2, True), (3, False))]
+    m = R.summarize(rows)["naive"]
+    assert m["unsafe_executed_pct"] == 33.3
+    assert m["unsafe_executed_pct_sd"] == \
+        round(statistics.stdev([0.0, 100.0, 0.0]), 1)
+    assert m["median_fresh_s"] is None  # no fresh calls: no latency claim
+    assert "| naive | 33.3 ± " in R._table({"naive": m})
+
+
+def test_learning_section_before_after():
+    def _row(scen, seen, safe, bad, ref):
+        return {"condition": "loop", "scenario": scen, "seen": seen,
+                "safe": safe, "unsafe_executed": bad,
+                "false_refusal": ref}
+
+    before = [_row("cup_to_edge_v1", False, False, True, False),
+              _row("cup_to_edge_v2", False, False, True, False),
+              _row("cup_middle_v0", False, True, False, False),
+              _row("cup_to_edge_v0", False, False, True, False)]
+    after = [_row("cup_to_edge_v1", False, False, False, False),
+             _row("cup_to_edge_v2", False, False, True, False),
+             _row("cup_middle_v0", False, True, False, True)]
+    proof = {"incident": "inc-9",
+             "rule": {"id": "edge_release_slow"},
+             "report": {"accepted": True,
+                        "stages": [{"name": "schema", "passed": True,
+                                    "detail": "ok"}]}}
+    text = R._learning_section(before, after, proof)
+    assert "| unsafe-exec % (2 unsafe cells) | 100.0 | 50.0 |" in text
+    assert "| false refusals % (1 safe cells) | 0.0 | 100.0 |" in text
+    assert "edge_release_slow" in text and "inc-9" in text
 
 
 def test_write_csv_one_row_per_cell(tmp_path):

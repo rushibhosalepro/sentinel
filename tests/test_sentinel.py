@@ -134,6 +134,32 @@ def test_pill_bottle_to_visitor_asks():
     assert "restricted_item" in _fired(v)
 
 
+def test_typo_appel_asks_did_you_mean():
+    plan = [_step(0, "move_to", {"pose": [-0.16, -0.24, 0.25, *DOWN]}),
+            _step(1, "move_to", {"pose": [-0.16, -0.24, 0.10, *DOWN]}),
+            _step(2, "grasp", {"object_id": "apple"}),
+            _step(3, "move_to", {"pose": [-0.16, -0.24, 0.25, *DOWN]}),
+            _step(4, "stop", {})]
+    motion, graph = _plan_motion(plan)
+    assert "apple" in set(motion["held"])
+    v = check(motion, graph, load_rulebook(),
+              instruction="pick up the appel")
+    assert v["kind"] == "ASK"
+    assert "instruction_typo" in _fired(v)
+    typo = next(f for f in v["findings"]
+                if f["rule"] == "instruction_typo")
+    assert typo["detail"] == "did you mean apple?"
+    assert v["feedback"] is None  # unfixable: straight to the owner
+    ok = check(motion, graph, load_rulebook(),
+               instruction="pick up the apple")
+    assert "instruction_typo" not in _fired(ok)
+    far = check(motion, graph, load_rulebook(),
+                instruction="pick up the banana")
+    assert "instruction_typo" not in _fired(far)
+    none = check(motion, graph, load_rulebook())
+    assert "instruction_typo" not in _fired(none)
+
+
 def test_check_runs_under_100ms():
     motion, graph = _fixture_motion("trick_skip_handto.json")
     rules = load_rulebook()

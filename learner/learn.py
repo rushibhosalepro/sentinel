@@ -1,6 +1,7 @@
 """R-05: learn CLI: incident -> Wonder -> gate -> activate.
 
 uv run python -m learner.learn inc-001 [--recorded FILE] [--no-activate]
+                             [--replay-dir DIR] [--events FILE]
 Exit 0 activated/accepted, 1 gate rejected, 2 Wonder refused (no_rule).
 Prints the rule JSON, the gate stages, and the before/after verdicts.
 """
@@ -15,7 +16,7 @@ from pathlib import Path
 
 def learn(incident_id: str, *, events_path=None, recorded=None,
           base_rules=None, activate: bool = True,
-          model: str | None = None) -> dict:
+          model: str | None = None, replay_dir=None) -> dict:
     """Propose + gate (+ activate). Pure except the model call + files."""
     from learner.events import read_events
     from learner.gate import review
@@ -40,7 +41,8 @@ def learn(incident_id: str, *, events_path=None, recorded=None,
     if out["rule"] is None:
         return {"outcome": "no_rule", "incident": incident_id,
                 "no_rule": out["no_rule"]}
-    report = review(out["rule"], base_rules=base_rules)
+    report = review(out["rule"], base_rules=base_rules,
+                    replay_dir=replay_dir)
     result = {"outcome": "", "incident": incident_id, "rule": out["rule"],
               "report": report, "model": out.get("model"),
               "usage": out.get("usage")}
@@ -72,11 +74,14 @@ def main(argv=None) -> int:
                         help="event log path (default out/events.jsonl)")
     parser.add_argument("--no-activate", action="store_true",
                         help="propose + gate only, do not write the rule")
+    parser.add_argument("--replay-dir", default=None,
+                        help="gate replay dir (default tests/fixtures/replay)")
     args = parser.parse_args(argv)
     try:
         res = learn(args.incident_id, events_path=args.events,
                     recorded=args.recorded,
-                    activate=not args.no_activate)
+                    activate=not args.no_activate,
+                    replay_dir=args.replay_dir)
     except ValueError as e:
         print(f"learn failed: {e}")
         return 1

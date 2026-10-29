@@ -14,7 +14,8 @@ def test_vocabulary_text_lists_non_live_predicates():
     assert "held_near_object_property" in text
     assert "object_near_edge" in text
     assert "person_in_path" not in text  # live-only, not checkable
-    assert text.count("\n") == 18  # 19 usable of 20
+    assert "release_near_edge" in text  # B-11: learnable edge releases
+    assert text.count("\n") == 19  # 20 usable of 21
 
 
 def test_recorded_rule_parses_and_softens():

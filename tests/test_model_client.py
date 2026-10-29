@@ -31,6 +31,19 @@ def _error(cls):
                body=None)
 
 
+def test_conftest_guard_blocks_external_http():
+    """B-09: the suite guard fails external calls, allows loopback."""
+    import httpx
+
+    client = httpx.Client()
+    req = client.build_request("GET", "https://api.example.com/v1")
+    with pytest.raises(AssertionError, match="blocked in tests"):
+        client.send(req)
+    local = client.build_request("GET", "http://127.0.0.1:9/none")
+    with pytest.raises(httpx.ConnectError):
+        client.send(local)
+
+
 def test_resolve_aliases():
     alias, spec = resolve("spark")
     assert (alias, spec["id"]) == ("spark", "muse-spark-1.3")

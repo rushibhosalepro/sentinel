@@ -66,7 +66,7 @@ def _run(model, data, contents, verdicts, monkeypatch,
     if not real_check:
         verdicts = list(verdicts)
 
-        def fake_check(motion, graph):
+        def fake_check(motion, graph, **kwargs):
             return verdicts.pop(0)
 
         monkeypatch.setattr(live, "check", fake_check)

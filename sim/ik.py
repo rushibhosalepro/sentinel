@@ -100,7 +100,13 @@ def solve_pose(
             raise IKFailed(f"QP failed at iter {iters}: {e}") from e
         config.integrate_inplace(vel, DT)
         err = ee_task.compute_error(config)
-        if float(np.linalg.norm(err[:3])) < pos_tol:
+        # B-08: converge BOTH terms before breaking. The old pos-only
+        # break stopped early once pos_tol loosened (tilt), leaving
+        # orientation unconverged to fail the post-loop ORI_TOL check.
+        pos_ok = float(np.linalg.norm(err[:3])) < pos_tol
+        ori_ok = orientation_cost <= 0 or \
+            float(np.linalg.norm(err[3:])) < ORI_TOL
+        if pos_ok and ori_ok:
             break
     info = {
         "iters": iters,

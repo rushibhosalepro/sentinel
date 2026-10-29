@@ -234,7 +234,10 @@ def tilt(model, data, state, deg, clock, on_sample) -> None:
     Solved in <=30° hops from the current config: a single 70° endpoint
     solve gets seed-trapped at extended reach (same disease as the 180°
     knife flip, same cure as the retract half-turns). Position tolerance
-    is 1 mm (a pour is an orientation task; the angle keeps ORI_TOL).
+    is 2.5 cm for tilt only: the recorded pour plans plateau the
+    solver at ~2.0 cm from the tilted target, so 1 cm still fails.
+    A pour is an orientation task; the angle keeps ORI_TOL, the mouth
+    may shift a little. (B-08)
 
     Round trips replay: each visited angle records its config, and a
     tilt back to a visited angle with an undisturbed arm replays the
@@ -277,7 +280,7 @@ def tilt(model, data, state, deg, clock, on_sample) -> None:
         try:
             q_target, _ = solve_pose(model, q0, hand_pos,
                                      mat_to_quat_wxyz(r_tgt),
-                                     pos_tol=1e-3)
+                                     pos_tol=2.5e-2)
         except IKFailed as e:
             raise PrimitiveError(f"tilt({deg}): {e}") from e
         blend(q0, q_target, abs(span) / n / TILT_RATE)

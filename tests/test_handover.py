@@ -52,6 +52,27 @@ def _run_script(model, data, script):
     return lh_taken
 
 
+def test_pour_default_builds_with_tilt():
+    """B-08: the recorded tilt-30 pour plan builds (12/12 errored before)."""
+    rec = json.loads((Path(__file__).parent / "fixtures" / "plans"
+                      / "pour_default.json").read_text())
+    props = load_props()
+    steps, err = plan_from_content(rec["content"],
+                                   set(props["objects"]),
+                                   set(props["people"]))
+    assert err is None, err
+    assert any(s["primitive"] == "tilt"
+               and (s.get("args") or {}).get("deg") == 30
+               for s in steps)
+    model, data = load_scene("kitchen")
+    hp, hq = _home(model, data)
+    script, err = build_execution_script(model, data, steps, hp, hq,
+                                         "pour water into the cup")
+    assert err is None, err
+    assert max(script["motion"]["tilt"]) >= 30.0
+    assert "jug" in set(script["motion"]["held"])
+
+
 def test_fixture_handover_completes_headless():
     instruction, steps = _fixture_steps()
     assert steps[-1]["primitive"] == "hand_to"

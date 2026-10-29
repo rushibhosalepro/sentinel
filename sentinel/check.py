@@ -153,6 +153,10 @@ VOCABULARY = {
     "release_near_person": {
         "scope": "event", "params": {"within_cm": "number"},
         "desc": "release within N cm of a person"},
+    "release_near_edge": {
+        "scope": "event", "params": {"edge_cm": "number"},
+        "desc": "release lands on the counter within N cm of its edge "
+                "(hand-overs off the counter never match)"},
     "release_into_hand": {
         "scope": "event", "params": "bool",
         "desc": "release goes into a person's hand"},
@@ -235,9 +239,30 @@ def _p_recipient_authorised(ev, graph, params):
     return auth == bool(params), {"person": who, "authorised": auth}
 
 
+def _p_release_near_edge(ev, graph, params):
+    """A release lands on the counter within N cm of its edge. (B-11)
+
+    Off-counter releases (hand-overs) never match; graphs without
+    counter bounds (old fixtures) never match either.
+    """
+    if ev["pos"] is None:
+        return False, {}
+    counter = graph.get("counter")
+    if counter is None:
+        return False, {}
+    x, y = float(ev["pos"][0]), float(ev["pos"][1])
+    (x0, x1), (y0, y1) = counter["x"], counter["y"]
+    if not (x0 <= x <= x1 and y0 <= y <= y1):
+        return False, {"edge_cm": None, "on_counter": False}
+    edge = min(x - x0, x1 - x, y - y0, y1 - y) * 100.0
+    return edge <= float(params["edge_cm"]), {"edge_cm": round(edge, 1),
+                                              "obj": ev["obj"]}
+
+
 EVENT_PREDS = {"release_property": _p_release_property,
                "release_above_surface": _p_release_above_surface,
                "release_near_person": _p_release_near_person,
+               "release_near_edge": _p_release_near_edge,
                "release_into_hand": _p_release_into_hand,
                "handover_to_person": _p_handover_to_person,
                "given_property": _p_given_property,
@@ -441,7 +466,62 @@ def _relations_of(rule_id: str, ev: dict) -> list[dict]:
     return [{"subj": subj, "rel": rel, "obj": who}]
 
 
-def check(motion, graph, rules=None) -> dict:
+def _edit_distance(a: str, b: str, cap: int = 2) -> int:
+    """Levenshtein distance with early exit above cap."""
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1,
+                           prev[j - 1] + (ca != cb)))
+        if min(cur) > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+def _typo_finding(motion, graph, instruction: str):
+    """B-10: instruction names a missing object; the plan uses a match.
+
+    Catches the planner silently "fixing" a typo'd name (appel->apple):
+    ASK the owner instead of executing a guess. Not a rulebook rule
+    (rules see motions, not words); plain string matching, no LLM.
+    """
+    import re
+
+    held = [h for h in R.held_ids(motion) if h in graph["objects"]]
+    if not held:
+        return None
+    known = set(graph["objects"])
+    for oid in graph["objects"]:
+        known.update(oid.split("_"))
+    best = None
+    for word in re.findall(r"[a-z]+", instruction.lower()):
+        if len(word) < 3 or word in known:
+            continue
+        for obj in held:
+            dist = _edit_distance(word, obj)
+            if dist <= 2 and (best is None or dist < best[0]):
+                best = (dist, word, obj)
+    if best is None:
+        return None
+    _, word, obj = best
+    return {"rule": "instruction_typo", "node": None, "t": 0.0,
+            "detail": f"did you mean {obj}?",
+            "_verdict": "ASK", "_hard": False, "_hint": None,
+            "_fixable": False, "_origin": "seed",
+            "_reason": f"instruction names {word!r}, which is not in "
+                       f"the scene; the plan acts on {obj}",
+            "_predicates": {"instruction_word": word, "acted_on": obj},
+            "_steps": [], "_relations": [{"subj": obj, "rel": "TYPO_OF",
+                                          "obj": word}],
+            "_params": {"instruction_word": word},
+            "_learned_from": []}
+
+
+def check(motion, graph, rules=None, instruction=None) -> dict:
     """Evaluate the rulebook over the motion; most severe verdict wins."""
     if rules is None:
         rules = load_rulebook()
@@ -502,6 +582,10 @@ def check(motion, graph, rules=None) -> dict:
         else:
             f["_hint"] = f["_hint"].replace(
                 "{safe_spot}", f"({spot[0]:.2f}, {spot[1]:.2f})")
+    if instruction:
+        typo = _typo_finding(motion, graph, instruction)
+        if typo is not None:
+            findings.append(typo)
     kind = "ALLOW"
     for f in findings:
         if SEVERITY[f["_verdict"]] > SEVERITY[kind]:
