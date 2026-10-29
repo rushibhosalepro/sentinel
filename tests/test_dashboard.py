@@ -47,6 +47,36 @@ def test_verdict_carries_why_path_and_feedback():
     assert ev["feedback"] == "feedback text"
 
 
+def test_hazard_tag():
+    assert E.hazard_tag(["sharp"]) == "SHARP"
+    assert E.hazard_tag(["fragile"]) == "FRAGILE"
+    assert E.hazard_tag(["food"]) is None
+    assert E.hazard_tag([]) is None
+    assert E.hazard_tag(["hot"]) is None  # not a camera tag
+
+
+def test_project_boxes_tags():
+    from graph.scene_graph import load_props
+    from sim.world import load_scene
+
+    model, data = load_scene("kitchen")
+    props = load_props()
+    by_id = {b["id"]: b
+             for b in E.project_boxes(model, data, props, "demo", 640, 480)}
+    assert by_id["chef_knife"]["tag"] == "SHARP"
+    assert by_id["laptop"]["tag"] == "ELECTRONIC"
+    assert by_id["jug"]["tag"] == "LIQUID"
+    assert by_id["pill_bottle"]["tag"] == "MEDICATION"
+    assert by_id["wine_glass"]["tag"] == "FRAGILE"
+    assert by_id["cup"]["tag"] is None
+    assert by_id["apple"]["tag"] is None
+    perceived = {"chef_knife": {"pos": [0.35, -0.18, 0.05],
+                                "extent": [0.02, 0.02, 0.02], "conf": 0.7}}
+    boxes = E.project_boxes(model, data, props, "demo", 640, 480, perceived)
+    assert [(b["id"], b["tag"], b["conf"]) for b in boxes] == [
+        ("chef_knife", "SHARP", 0.7)]
+
+
 def test_proposal_feedback_ask_events_serialize():
     why = [{"rule": "r1", "verdict": "ASK", "hard": False, "t": 0.5,
             "origin": "seed", "reason": "why", "predicates": {"gap_cm": 1.0},
@@ -290,6 +320,131 @@ def test_scene_preset_republishes_and_unknown_404s():
         assert graph["type"] == "graph"
         cup = graph["graph"]["objects"]["cup"]["pos"]
         assert abs(cup[0] - 0.35) < 0.01  # the F3 cup spot
+
+
+def _two_rounds(instruction, sink, **kwargs):
+    sink(E.plan_event([{"action": "stop", "args": {}}], 1))
+    sink(E.proposal_event(1, "spark", 1.0, 3))
+    sink(E.verdict_event(1, "BLOCK", [], ["slow down"], []))
+    sink(E.feedback_event(1, "Attempt 1 was rejected (BLOCK)."))
+    sink(E.proposal_event(2, "spark", 2.0, 3))
+    sink(E.verdict_event(2, "ALLOW", [], None, []))
+    sink(E.done_event("complete", {}))
+
+
+def test_late_socket_replays_full_run_then_clears():
+    kinds = ["plan", "proposal", "verdict", "feedback", "proposal",
+             "verdict", "done"]
+    app = create_app(runner=_two_rounds)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws1:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        assert [ws1.receive_json()["type"] for _ in range(7)] == kinds
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws2:
+        got = [ws2.receive_json() for _ in range(7)]
+        assert [e["type"] for e in got] == kinds
+        assert {e["run_id"] for e in got} == {1}
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws3:
+        assert [ws3.receive_json()["type"] for _ in range(7)] == kinds
+        assert client.post("/instruction",
+                           json={"instruction": "y"}).status_code == 202
+        live = [ws3.receive_json() for _ in range(7)]
+        assert [e["type"] for e in live] == kinds
+        assert {e["run_id"] for e in live} == {2}
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws4:
+        got = [ws4.receive_json() for _ in range(7)]
+        assert [e["type"] for e in got] == kinds
+        assert {e["run_id"] for e in got} == {2}  # run 1 cleared
+
+
+def test_concurrent_scene_renders_stay_up():
+    import concurrent.futures as futures
+
+    app = create_app(runner=_run_plan_done, idle_render=True)
+
+    def _get(_):
+        with TestClient(app) as client:
+            return client.get("/scene?preset=default").status_code
+
+    with futures.ThreadPoolExecutor(max_workers=3) as pool:
+        assert list(pool.map(_get, range(3))) == [200, 200, 200]
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+
+
+def _slow_stream(instruction, sink, **kwargs):
+    import time as _time
+
+    for i in range(10):
+        sink(E.frame_event("e30=", [], "truth", float(i)))
+        _time.sleep(0.2)
+
+
+def test_live_disconnect_is_quiet():
+    """Real sockets: a mid-stream drop leaves no traceback behind."""
+    import logging
+    import socket
+    import time as _time
+
+    import httpx
+    import uvicorn
+    import websockets.sync.client as ws_client
+
+    records = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    logger = logging.getLogger("uvicorn.error")
+    sink_handler = _Sink(level=logging.ERROR)
+    logger.addHandler(sink_handler)
+    try:
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        server = uvicorn.Server(uvicorn.Config(
+            create_app(runner=_slow_stream), port=port,
+            log_level="error"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        try:
+            for _ in range(100):
+                try:
+                    if httpx.get(f"http://127.0.0.1:{port}/health",
+                                 timeout=2).status_code == 200:
+                        break
+                except Exception:  # noqa: BLE001 - not up yet
+                    _time.sleep(0.1)
+            httpx.post(f"http://127.0.0.1:{port}/instruction",
+                       json={"instruction": "x"}, timeout=10)
+            with ws_client.connect(f"ws://127.0.0.1:{port}/ws",
+                                      max_size=10_000_000) as ws:
+                ws.recv(timeout=10)
+            # Socket closed mid-stream; the send-only handler finds out
+            # on its next send.
+            _time.sleep(2.5)  # let several sends hit the dead socket
+        finally:
+            server.should_exit = True
+            thread.join(timeout=15)
+    finally:
+        logger.removeHandler(sink_handler)
+    assert [r for r in records
+            if "Traceback" in r.getMessage() or r.exc_info] == []
+
+
+def test_abrupt_disconnect_leaves_server_healthy():
+    app = create_app(runner=_two_rounds)
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws"):
+            pass  # connect and drop immediately
+        with client.websocket_connect("/ws") as ws:
+            assert client.post("/instruction",
+                               json={"instruction": "x"}).status_code == 202
+            kinds = ["plan", "proposal", "verdict", "feedback", "proposal",
+                     "verdict", "done"]
+            assert [ws.receive_json()["type"] for _ in range(7)] == kinds
 
 
 def test_ask_registry_timeout_and_double_decide():

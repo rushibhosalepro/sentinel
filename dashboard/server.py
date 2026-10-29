@@ -108,7 +108,7 @@ def _envelope(run_id: int, event: dict) -> dict:
 
 
 def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
-    """Render one front frame + graph for a preset (lazy heavy imports)."""
+    """Render one demo-camera frame + graph for a preset (lazy imports)."""
     import mujoco
 
     import loop.live as live
@@ -132,14 +132,14 @@ def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
         renderer = mujoco.Renderer(idle["model"], height=HEIGHT,
                                    width=WIDTH)
     try:
-        renderer.update_scene(idle["data"], camera="front")
+        renderer.update_scene(idle["data"], camera="demo")
         frame = renderer.render()
     finally:
         with RENDER_LOCK:
             renderer.close()
     graph = graph_snapshot(idle["model"], idle["data"], idle["props"])
     boxes = project_boxes(idle["model"], idle["data"], idle["props"],
-                          "front", WIDTH, HEIGHT)
+                          "demo", WIDTH, HEIGHT)
     return (frame_event(encode_jpeg_b64(frame), boxes, "truth", 0.0),
             graph_event(graph))
 
@@ -161,13 +161,16 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
               "(all /ask -> 403)")
     registry = AskRegistry()
     state = {"busy": False, "run_id": 0, "lock": threading.Lock(),
-             "subs": set(), "latest": {}, "idle": {},
+             "subs": set(), "latest": {}, "history": [], "idle": {},
              "render_lock": threading.Lock()}
 
     def _publish(event: dict):
         with state["lock"]:
             if event["type"] in ("frame", "graph", "plan"):
                 state["latest"][event["type"]] = (state["run_id"], event)
+            if event["type"] in ("proposal", "verdict", "feedback", "ask",
+                                 "halt", "clear", "done"):
+                state["history"].append((state["run_id"], event))
             subs = list(state["subs"])
         for q in subs:
             q.put(event)
@@ -214,6 +217,7 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             state["busy"] = True
             state["run_id"] += 1
             run_id = state["run_id"]
+            state["history"] = []
         kwargs = {"perception": body.perception, "model": body.model,
                   "preset": body.preset}
 
@@ -250,6 +254,7 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             catchup = [state["latest"][t]
                        for t in ("frame", "graph", "plan")
                        if t in state["latest"]]
+            catchup += list(state["history"])
         loop = asyncio.get_running_loop()
         try:
             for rid, event in catchup:

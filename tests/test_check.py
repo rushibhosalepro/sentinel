@@ -120,14 +120,15 @@ def test_blade_away_allows():
     assert v["kind"] == "ALLOW"
 
 
-def test_sharp_fast_asks_with_feedback():
+def test_hazard_fast_asks_with_feedback():
     g = _graph(hand=(0.2, 0.0, 0.3))
     g["objects"]["jug"]["pos"] = [0.0, 0.0, 0.3]
     m = _motion([[0.0, 0.0, 0.3, DOWN]], ["jug"], speed="normal")
     v = check(m, g, _rules())
     assert v["kind"] == "ASK"
-    assert v["findings"][0]["rule"] == "sharp_fast_near_person"
-    assert "normal speed" in v["findings"][0]["detail"]
+    assert v["findings"][0]["rule"] == "hazard_fast_near_person"
+    assert v["findings"][0]["detail"] == (
+        "jug (liquid) at normal speed 20 cm from owner's hand")
     assert v["feedback"] == ["slow within 30 cm of a person"]
 
 
@@ -140,7 +141,7 @@ def test_release_in_air_blocks_and_beats_ask():
     assert v["kind"] == "BLOCK"
     assert v["why_path"][0]["rule"] == "release_near_person_in_air"
     assert v["why_path"][1]["rule"] == "sharp_toward_person"
-    assert v["why_path"][2]["rule"] == "sharp_fast_near_person"
+    assert v["why_path"][2]["rule"] == "hazard_fast_near_person"
     assert "mid-air" in v["findings"][0]["detail"]
     # Hard BLOCK verdict: no feedback, despite the soft ASK alongside.
     assert v["feedback"] is None

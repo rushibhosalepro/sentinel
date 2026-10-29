@@ -16,9 +16,9 @@ def _content(name):
 
 def _final_ask(hard=False):
     return {"kind": "ASK",
-            "findings": [{"rule": "sharp_fast_near_person", "node": "owner",
+            "findings": [{"rule": "hazard_fast_near_person", "node": "owner",
                           "t": 1.0, "detail": "too fast near owner"}],
-            "why_path": [{"rule": "sharp_fast_near_person",
+            "why_path": [{"rule": "hazard_fast_near_person",
                           "verdict": "ASK", "hard": hard, "t": 1.0}],
             "feedback": None}  # unfixable: final, no replan
 
@@ -60,7 +60,7 @@ def test_decide_ask_approve_emits_event():
     assert ev["type"] == "ask" and ev["ask_id"] == ask_id
     assert ev["round"] == 2
     assert ev["question"].startswith("Allow the motion?")
-    assert ev["findings"][0]["rule"] == "sharp_fast_near_person"
+    assert ev["findings"][0]["rule"] == "hazard_fast_near_person"
 
 
 def test_decide_ask_deny_and_timeout():

@@ -162,13 +162,28 @@ def encode_jpeg_b64(rgb: np.ndarray, quality: int = 70) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+HAZARD_TAGS = {"sharp": "SHARP", "fragile": "FRAGILE",
+               "liquid": "LIQUID", "electronic": "ELECTRONIC",
+               "medication": "MEDICATION"}
+
+
+def hazard_tag(properties: list) -> str | None:
+    """First hazard tag for a property list (None when untagged)."""
+    for p in properties:
+        if p in HAZARD_TAGS:
+            return HAZARD_TAGS[p]
+    return None
+
+
 def project_boxes(model, data, props: dict, camera: str,
                   width: int, height: int,
                   perceived: dict | None = None) -> list:
-    """2D boxes for every object: [{id,x0,y0,x1,y1,conf,source}].
+    """2D boxes for every object: [{id,x0,y0,x1,y1,conf,source,tag}].
 
     Truth mode projects sim boxes; sam mode uses perceived
-    pos/extent/conf (objects the frame missed are absent).
+    pos/extent/conf (objects the frame missed are absent). tag is the
+    hazard tag (SHARP/...) or None; properties always come from
+    props.yaml (matched ids keep them in sam mode too).
     """
     from perception.lift3d import camera_params, project
     from sim.geometry import body_aabb
@@ -203,7 +218,10 @@ def project_boxes(model, data, props: dict, camera: str,
         x1, y1 = min(width, int(u.max()) + 1), min(height, int(v.max()) + 1)
         if x1 <= x0 or y1 <= y0:
             continue
+        tag = hazard_tag(
+            props["objects"][oid].get("properties", []))
         boxes.append({"id": oid, "x0": x0, "y0": y0, "x1": x1, "y1": y1,
-                      "conf": round(conf, 2), "source": source})
+                      "conf": round(conf, 2), "source": source,
+                      "tag": tag})
     boxes.sort(key=lambda b: b["id"])
     return boxes

@@ -1,0 +1,1 @@
+{"constraint_hint":"slow within 30 cm of a person","fixable":true,"hard":false,"id":"hazard_fast_near_person","learned_from":[],"origin":"handwritten","reason":"A held sharp/hot/liquid object at normal speed within 30 cm of a person.","unless":{},"verdict":"ASK","version":1,"when":{"held_near_person":{"within_cm":30.0},"held_property":["hot","liquid","sharp"],"speed":"normal"}}

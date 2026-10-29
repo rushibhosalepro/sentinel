@@ -587,9 +587,14 @@ export default function App() {
                       x={b.x0} y={b.y0}
                       width={b.x1 - b.x0} height={b.y1 - b.y0}
                     />
-                    <text x={b.x0 + 3} y={b.y0 + 13}>
-                      {b.id} {b.conf != null ? b.conf.toFixed(2) : ''}
-                    </text>
+                    {b.tag != null && (
+                      <text x={b.x0 + 3} y={b.y0 + 13}>
+                        {b.id} {b.tag}
+                        {b.conf != null && b.conf < 1
+                          ? ` ${b.conf.toFixed(2)}`
+                          : ''}
+                      </text>
+                    )}
                   </g>
                 ))}
               </svg>

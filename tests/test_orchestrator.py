@@ -26,7 +26,7 @@ def _content(name):
 
 def _ask():
     return {"kind": "ASK",
-            "findings": [{"rule": "sharp_fast_near_person", "node": "owner",
+            "findings": [{"rule": "hazard_fast_near_person", "node": "owner",
                           "t": 1.0, "detail": "too fast near owner"}],
             "why_path": [], "feedback": ["slow within 30 cm of a person"]}
 
@@ -92,7 +92,7 @@ def test_ask_replans_with_constraints(monkeypatch):
     assert "too fast near owner" in calls[1]
     assert res["verdict"]["kind"] == "ALLOW"
     assert res["rounds"] == 1
-    assert res["trace"] == ["Round 1: ASK sharp_fast_near_person",
+    assert res["trace"] == ["Round 1: ASK hazard_fast_near_person",
                             "feedback: slow within 30 cm of a person",
                             "Round 2: ALLOW"]
 
@@ -145,8 +145,8 @@ def test_ask_gives_up_after_3_rounds(monkeypatch):
     assert res["verdict"]["kind"] == "ASK"
     assert res["rounds"] == 3
     assert len(res["trace"]) == 7
-    assert res["trace"][0] == "Round 1: ASK sharp_fast_near_person"
-    assert res["trace"][-1] == "Round 4: ASK sharp_fast_near_person"
+    assert res["trace"][0] == "Round 1: ASK hazard_fast_near_person"
+    assert res["trace"][-1] == "Round 4: ASK hazard_fast_near_person"
 
 
 def test_real_ask_replans_to_allow(monkeypatch):
@@ -189,7 +189,7 @@ def test_real_ask_replans_to_allow(monkeypatch):
     v0 = check(script["motion"], graph_snapshot(model, data, props),
                load_rulebook())
     assert v0["kind"] == "ASK"
-    assert "sharp_fast_near_person" in {f["rule"] for f in v0["findings"]}
+    assert "hazard_fast_near_person" in {f["rule"] for f in v0["findings"]}
 
     first = _json.dumps({"steps": jug_run})
     res, calls = _run(model, data, [first, _content("give_apple.json")],

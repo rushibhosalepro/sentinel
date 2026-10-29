@@ -256,9 +256,11 @@ def _detail(rule_id: str, ev: dict) -> str:
     if rule_id == "release_near_person_in_air":
         return (f"released {ev['obj']} in mid-air {ev['gap_cm']:.0f} cm "
                 f"from {ev['person']} (not into a hand){margin}")
-    if rule_id == "sharp_fast_near_person":
-        return (f"held {ev['obj']} at normal speed {ev['gap_cm']:.0f} cm "
-                f"from {ev['person']}'s {ev['part']}{margin}")
+    if rule_id == "hazard_fast_near_person":
+        props = ", ".join(ev.get("props", []))
+        return (f"{ev['obj']} ({props}) at normal speed "
+                f"{ev['gap_cm']:.0f} cm from "
+                f"{ev['person']}'s {ev['part']}")
     if rule_id == "liquid_above_electronic":
         what = f"tilted {ev['tilt_deg']:.0f}°" if "tilt_deg" in ev \
             else f"held {ev['obj']}"

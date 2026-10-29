@@ -5,7 +5,7 @@ from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
                            has_hard_finding, should_replan)
 
 
-def _verdict(kind, rules=(("sharp_fast_near_person", False),),
+def _verdict(kind, rules=(("hazard_fast_near_person", False),),
              feedback=None):
     return {"kind": kind,
             "findings": [{"rule": r, "node": "owner", "t": 1.0,
@@ -58,8 +58,8 @@ def test_replan_note_carries_evidence_and_constraints():
     v = _verdict("ASK", feedback=["slow within 30 cm of a person"])
     note = format_replan_note(v, 1)
     assert "Attempt 1 was rejected (ASK)" in note
-    assert "detail for sharp_fast_near_person" in note
-    assert "[sharp_fast_near_person]" in note
+    assert "detail for hazard_fast_near_person" in note
+    assert "[hazard_fast_near_person]" in note
     assert "slow within 30 cm of a person" in note
     assert "EXACTLY as written" in note
 
