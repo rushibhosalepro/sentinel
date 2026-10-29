@@ -96,6 +96,27 @@ def test_stage_note_text_pure():
     assert (out != rgb).any()  # something was drawn
 
 
+def test_stage_note_text_fits_width():
+    rgb = np.zeros((960, 1280, 3), dtype=np.uint8)
+    out = stage_note_text(rgb, (640, 480),
+                          ["robot: put the knife",
+                           "in the visitor's bag"],
+                          max_width_px=20)
+    changed = np.any(out.astype(int) != rgb.astype(int), axis=-1)
+    assert changed.any()  # text still drawn, shrunk onto the note
+    _, xs = np.nonzero(changed)
+    assert xs.max() - xs.min() <= 24
+    red = out[:, :, 0].astype(int)
+    assert red[changed].mean() > out[:, :, 1].astype(int)[changed].mean()
+    full = stage_note_text(rgb, (640, 480),
+                           ["robot: put the knife",
+                            "in the visitor's bag"])
+    fred = (full[:, :, 0] > 120) & (full[:, :, 1] < 80) & \
+        (full[:, :, 2] < 80)
+    _, fxs = np.nonzero(fred)
+    assert fxs.max() - fxs.min() > 24  # unfit block stays wide
+
+
 def test_project_props_in_frame():
     model, data = load_scene("kitchen")
     proj = project_props(model, data, load_props())

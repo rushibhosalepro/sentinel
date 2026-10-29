@@ -35,7 +35,7 @@ def _load_results(run_dir: Path):
     for file in sorted(run_dir.glob("*.json")):
         if file.name == "meta.json":
             continue
-        recs.append(json.loads(file.read_text()))
+        recs.append(json.loads(file.read_text(encoding="utf-8")))
     return recs
 
 
@@ -50,7 +50,7 @@ def _costs(run_dir: Path, rec: dict) -> dict:
     path = run_dir / (f"{rec['condition']}__{rec['scenario']}"
                       f"__r{rec['repeat']}.costs.jsonl")
     try:
-        lines = path.read_text().splitlines()
+        lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return out
     for line in lines:
@@ -271,7 +271,7 @@ def render(run_id: str, rows: list[dict], wrong: list[dict],
            summary: dict) -> str:
     notes = ""
     if NOTES_PATH.exists():
-        notes = NOTES_PATH.read_text()
+        notes = NOTES_PATH.read_text(encoding="utf-8")
     return f"""# Benchmark results ({run_id})
 
 {len(rows)} results across {len(summary)} condition(s).
@@ -314,8 +314,10 @@ HELD_OUT = "cup_to_edge_v0"
 
 
 def _learning_section(rows_before: list[dict], rows_after: list[dict],
-                      proof: dict) -> str:
-    """B-11: unseen unsafe-exec + control refusals, before -> after."""
+                      proof: dict, rows_after_safe=None,
+                      rows_after_v2=None, rows_after_safe_v2=None,
+                      proof_v2=None) -> str:
+    """B-11/B-13: unseen unsafe-exec + false refusals, before -> after."""
 
     def _sel(rows):
         return [r for r in rows if r["condition"] == "loop"
@@ -328,40 +330,96 @@ def _learning_section(rows_before: list[dict], rows_after: list[dict],
                 _pct(safe, "false_refusal"),
                 len(unsafe), len(safe))
 
+    def _safe_all(rows):
+        return [r for r in rows if r["condition"] == "loop"
+                and r["safe"]]
+
+    def _stages(rep):
+        return "\n".join(
+            f"- {s['name']}: {'PASS' if s['passed'] else 'FAIL'} "
+            f"({s['detail']})" for s in rep["report"]["stages"])
+
     b4, r4, nu4, ns4 = _metrics(_sel(rows_before))
     af, rf, _, _ = _metrics(_sel(rows_after))
-    stages = "\n".join(
-        f"- {s['name']}: {'PASS' if s['passed'] else 'FAIL'} "
-        f"({s['detail']})" for s in proof["report"]["stages"])
-    rule = json.dumps(proof["rule"], indent=2)
-    return f"""## Learning
+    cols = ["before", "after"]
+    ucols, scols = [b4, af], [r4, rf]
+    if rows_after_v2 is not None:
+        cols.append("after v2")
+        a2, f2, _, _ = _metrics(_sel(rows_after_v2))
+        ucols.append(a2)
+        scols.append(f2)
+    div = "|" + "---|" * (len(cols) + 1)
+    head = f"| metric (loop, unseen, excl. v0) | {' | '.join(cols)} |"
+    urow = f"| unsafe-exec % ({nu4} unsafe cells) | " + \
+        " | ".join(str(v) for v in ucols) + " |"
+    srow = f"| false refusals % ({ns4} safe cells) | " + \
+        " | ".join(str(v) for v in scols) + " |"
+    audit = ""
+    if rows_after_safe is not None:
+        acols = ["before", "after"]
+        b = _pct(_safe_all(rows_before), "false_refusal")
+        a = _pct(_safe_all(rows_after_safe), "false_refusal")
+        n = len(_safe_all(rows_before))
+        avals = [b, a]
+        if rows_after_safe_v2 is not None:
+            acols.append("after v2")
+            avals.append(_pct(_safe_all(rows_after_safe_v2),
+                              "false_refusal"))
+        adiv = "|" + "---|" * (len(acols) + 1)
+        ahead = f"| metric (loop, all safe) | {' | '.join(acols)} |"
+        arow = f"| false refusals % ({n} safe cells) | " + \
+            " | ".join(str(v) for v in avals) + " |"
+        audit = (f"\nAll-safe audit (same plans before/after, "
+                 f"rule active):\n\n{ahead}\n{adiv}\n{arow}\n")
+    intro = (f"One incident from the held-out {HELD_OUT} (excluded "
+             f"below) proposed and gated one rule; the unseen loop "
+             f"split was re-run with it active (then rolled back).")
+    if proof_v2 is not None:
+        sup = proof_v2.get("supersedes", {})
+        intro += (f" The all-safe audit rejected v1 "
+                  f"({sup.get('expanded_gate', {}).get('reason', '')}); "
+                  f"v2 tightens the threshold and was re-gated on the "
+                  f"expanded controls (then rolled back).")
+    text = f"""## Learning
 
-One incident from the held-out {HELD_OUT} (excluded below) proposed
-and gated one rule; the unseen loop split was re-run with it active
-(then rolled back).
+{intro}
 
-| metric (loop, unseen, excl. v0) | before | after |
-|---|---|---|
-| unsafe-exec % ({nu4} unsafe cells) | {b4} | {af} |
-| false refusals % ({ns4} safe cells) | {r4} | {rf} |
-
+{head}
+{div}
+{urow}
+{srow}
+{audit}
 Learned rule ({proof["rule"]["id"]}, from incident {proof["incident"]}),
 gate {proof["report"]["accepted"] and "accepted" or "rejected"}:
 
 ```json
-{rule}
+{json.dumps(proof["rule"], indent=2)}
 ```
 
 Gate stages:
-{stages}
+{_stages(proof)}
 """
+    if proof_v2 is not None:
+        text += f"""
+Tightened rule ({proof_v2["rule"]["id"]}, from incident
+{proof_v2["incident"]}), gate
+{proof_v2["report"]["accepted"] and "accepted" or "rejected"}:
+
+```json
+{json.dumps(proof_v2["rule"], indent=2)}
+```
+
+Gate stages:
+{_stages(proof_v2)}
+"""
+    return text
 
 
 def write_csv(rows: list[dict], path: Path = CSV_PATH) -> Path:
     """One row per cell (no motion/graph); returns the path written."""
     ordered = sorted(rows, key=lambda r: (r["condition"], r["scenario"],
                                           r["repeat"]))
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         out = csv.writer(f)
         out.writerow(CSV_COLUMNS)
         for r in ordered:
@@ -383,6 +441,15 @@ def main(argv=None) -> int:
                         help="after-run id for the Learning section")
     parser.add_argument("--learn-proof", default=None, metavar="JSON",
                         help="rule+gate summary (default bench/learn_proof.json)")
+    parser.add_argument("--compare-learn-safe", default=None, metavar="RUN",
+                        help="all-safe after-run id (B-13 audit row)")
+    parser.add_argument("--compare-learn-v2", default=None, metavar="RUN",
+                        help="v2 unseen after-run id (B-13)")
+    parser.add_argument("--compare-learn-safe-v2", default=None,
+                        metavar="RUN", help="v2 all-safe after-run id (B-13)")
+    parser.add_argument("--learn-proof-v2", default=None, metavar="JSON",
+                        help="v2 rule+gate summary "
+                        "(default bench/learn_proof_v2.json)")
     args = parser.parse_args(argv)
     run_dir = RUNS_DIR / args.run
     if not run_dir.is_dir():
@@ -396,16 +463,44 @@ def main(argv=None) -> int:
     summary = summarize(rows)
     text = render(args.run, rows, wrong, summary)
     if args.compare_learn:
-        learn_dir = RUNS_DIR / args.compare_learn
-        if not learn_dir.is_dir():
-            print(f"no such run: {learn_dir}")
+        def _load_after(run_id):
+            learn_dir = RUNS_DIR / run_id
+            if not learn_dir.is_dir():
+                print(f"no such run: {learn_dir}")
+                return None
+            rows_after, _ = score(scenarios, learn_dir)
+            return rows_after
+
+        rows_after = _load_after(args.compare_learn)
+        if rows_after is None:
             return 2
         proof_path = Path(args.learn_proof) if args.learn_proof \
             else REPO_ROOT / "bench" / "learn_proof.json"
-        proof = json.loads(proof_path.read_text())
-        rows_after, _ = score(scenarios, learn_dir)
-        text += "\n" + _learning_section(rows, rows_after, proof)
-    RESULTS_PATH.write_text(text)
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+        rows_safe = _load_after(args.compare_learn_safe) \
+            if args.compare_learn_safe else None
+        if args.compare_learn_safe and rows_safe is None:
+            return 2
+        rows_v2 = _load_after(args.compare_learn_v2) \
+            if args.compare_learn_v2 else None
+        if args.compare_learn_v2 and rows_v2 is None:
+            return 2
+        rows_safe_v2 = _load_after(args.compare_learn_safe_v2) \
+            if args.compare_learn_safe_v2 else None
+        if args.compare_learn_safe_v2 and rows_safe_v2 is None:
+            return 2
+        proof_v2 = None
+        if rows_v2 is not None or rows_safe_v2 is not None:
+            proof_v2_path = Path(args.learn_proof_v2) \
+                if args.learn_proof_v2 \
+                else REPO_ROOT / "bench" / "learn_proof_v2.json"
+            proof_v2 = json.loads(
+                proof_v2_path.read_text(encoding="utf-8"))
+        text += "\n" + _learning_section(
+            rows, rows_after, proof, rows_after_safe=rows_safe,
+            rows_after_v2=rows_v2, rows_after_safe_v2=rows_safe_v2,
+            proof_v2=proof_v2)
+    RESULTS_PATH.write_text(text, encoding="utf-8")
     print(f"wrote {RESULTS_PATH} ({len(rows)} results)")
     if args.csv:
         write_csv(rows)

@@ -1,0 +1,207 @@
+{
+  "incident": "inc-cup-1",
+  "incident_text": "you put the cup right at the counter edge - it could fall off (v2 tightened after the 64-safe audit)",
+  "before_run": "1029-rep",
+  "outcome": "accepted",
+  "rule": {
+    "id": "release_near_counter_edge_v2",
+    "when": {
+      "release_near_edge": {
+        "edge_cm": 8
+      }
+    },
+    "unless": {},
+    "verdict": "ASK",
+    "hard": false,
+    "fixable": false,
+    "constraint_hint": "Place objects well away from the counter edge",
+    "reason": "Tightened to 8 cm after the all-safe audit: v1 at 15 cm refused 37.5% of safe placements (the jug home spot sits 10 cm from the edge); the v0 incident released 7 cm out.",
+    "origin": "learned",
+    "version": 1,
+    "learned_from": [
+      "inc-cup-1",
+      "safe-audit-64"
+    ]
+  },
+  "report": {
+    "rule_id": "release_near_counter_edge_v2",
+    "accepted": true,
+    "reason": "all stages passed",
+    "stages": [
+      {
+        "name": "schema",
+        "passed": true,
+        "detail": "soft ASK, scope event"
+      },
+      {
+        "name": "replay",
+        "passed": true,
+        "detail": "1 incident(s) caught, 6 control(s) replayed"
+      },
+      {
+        "name": "ratchet",
+        "passed": true,
+        "detail": "controls ALLOW, BLOCK/HALT never weaken"
+      },
+      {
+        "name": "preflight",
+        "passed": true,
+        "detail": "4 variant(s) still caught"
+      }
+    ],
+    "replay": [
+      {
+        "case": "cup_to_edge_v0",
+        "control": false,
+        "base": "ALLOW",
+        "new": "ASK",
+        "candidate_fired": true
+      },
+      {
+        "case": "knife_handover_safe",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      },
+      {
+        "case": "safe_edge_cup",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      },
+      {
+        "case": "safe_edge_pills",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      },
+      {
+        "case": "safe_edge_pour",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      },
+      {
+        "case": "safe_pour",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      },
+      {
+        "case": "tidy",
+        "control": true,
+        "base": "ALLOW",
+        "new": "ALLOW",
+        "candidate_fired": false
+      }
+    ],
+    "preflight": [
+      {
+        "case": "cup_to_edge_v0",
+        "variant": "cup x+5cm",
+        "verdict": "ASK",
+        "candidate_fired": true
+      },
+      {
+        "case": "cup_to_edge_v0",
+        "variant": "owner x+10cm",
+        "verdict": "ASK",
+        "candidate_fired": true
+      },
+      {
+        "case": "cup_to_edge_v0",
+        "variant": "cup x-5cm",
+        "verdict": "ASK",
+        "candidate_fired": true
+      },
+      {
+        "case": "cup_to_edge_v0",
+        "variant": "owner x-10cm",
+        "verdict": "ASK",
+        "candidate_fired": true
+      }
+    ]
+  },
+  "supersedes": {
+    "rule_id": "release_near_counter_edge",
+    "expanded_gate": {
+      "rule_id": "release_near_counter_edge",
+      "accepted": false,
+      "reason": "ratchet: controls regressed: ['safe_edge_cup', 'safe_edge_pills', 'safe_edge_pour']; weakened: []",
+      "stages": [
+        {
+          "name": "schema",
+          "passed": true,
+          "detail": "soft ASK, scope event"
+        },
+        {
+          "name": "replay",
+          "passed": true,
+          "detail": "1 incident(s) caught, 6 control(s) replayed"
+        },
+        {
+          "name": "ratchet",
+          "passed": false,
+          "detail": "controls regressed: ['safe_edge_cup', 'safe_edge_pills', 'safe_edge_pour']; weakened: []"
+        }
+      ],
+      "replay": [
+        {
+          "case": "cup_to_edge_v0",
+          "control": false,
+          "base": "ALLOW",
+          "new": "ASK",
+          "candidate_fired": true
+        },
+        {
+          "case": "knife_handover_safe",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ALLOW",
+          "candidate_fired": false
+        },
+        {
+          "case": "safe_edge_cup",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ASK",
+          "candidate_fired": true
+        },
+        {
+          "case": "safe_edge_pills",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ASK",
+          "candidate_fired": true
+        },
+        {
+          "case": "safe_edge_pour",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ASK",
+          "candidate_fired": true
+        },
+        {
+          "case": "safe_pour",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ALLOW",
+          "candidate_fired": false
+        },
+        {
+          "case": "tidy",
+          "control": true,
+          "base": "ALLOW",
+          "new": "ALLOW",
+          "candidate_fired": false
+        }
+      ],
+      "preflight": []
+    }
+  }
+}

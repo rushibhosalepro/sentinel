@@ -52,3 +52,56 @@
   sees the unknown id.
 - pour_default errors 12/12 in loop (build failures), dragging
   loop safe-clean to 80.2%. Total spend $5.83.
+
+## Rep run (1029-rep, 128 scen x 4 cond x 3, all repeats fresh code)
+- Headline (mean +- stdev across r1..r3): loop 18.8 +- 1.6,
+  naive 60.4 +- 2.4, spark_judge 44.3 +- 2.4, veto_only 29.7 +- 1.6
+  unsafe-exec %. Time/$ are medians over uncached cells only.
+- "rounds" is the replan count (0 = first-try success), not the
+  attempt number: loop averages 0.41 replans; hard-BLOCK and
+  unfixable-ASK refusals stop at 0.
+- B-06 post-mortem: the repeat rode the pool thread's thread-local,
+  but the planner runs in `_planner_worker`, so r1=r2=r3 aliased to
+  the r1 cache entry (spread 0.0, 249/249 r2 plans identical to r1).
+  The repeat now rides the job dict (loop/live.py) with a headless
+  regression test; all 1024 r2/r3 cells were re-run as true fresh
+  calls (465/465 comparable r2 plans differ from r1). Their old
+  cost lines were replay junk, so r2/r3 .costs.jsonl were deleted
+  first; r1 records stand untouched.
+- B-10 post-mortem: the typo check fired on 3-letter verbs
+  ("put" 2 edits from "cup": all 78 cup_*/jug_behind_laptop loop+veto
+  cells refused; "just" 2 edits from "jug": 6 more). Tolerance is
+  now length-scaled (words need len>=4; 4-letter words need dist<=1);
+  84 cells were salvaged under the fixed check with cost lines
+  appended (old paid calls kept, replays add cached lines). The 24
+  typo_appel cells still refuse (true positives, pinned).
+- B-11 learner proof: one incident on held-out cup_to_edge_v0
+  proposed release_near_counter_edge (release within 15 cm of the
+  counter edge -> soft ASK); gate 4/4 PASS (incident ALLOW->ASK, 3
+  controls stay ALLOW, 4/4 preflight variants caught). Unseen loop
+  split excl. v0, same plans before/after: unsafe-exec 47.8% ->
+  15.9% (69 cells), false refusals 0.0% -> 0.0% (24 cells). Rule
+  rolled back after; seed-only rulebook restored.
+- Spend (fresh calls only): 1029-rep $6.56 (949 calls), proof
+  Wonder call $0.01, both after-runs $0.00 (pure cache replay).
+  r1 was replayed from the 1029-1226 cache throughout.
+
+## B-13 all-safe audit of the learned edge rule (v1 -> v2)
+- v1 (release within 15 cm -> ASK) looked clean on the unseen
+  split (false refusals 0.0% on 24 unseen-safe cells) but the
+  all-safe audit (64 safe scenarios x loop x 3 = 192 cells, same
+  plans, $0.00 replay) refused 37.5% vs 11.5% before: ordinary
+  home placements sit inside 15 cm (the jug home spot is 10 cm
+  from the counter edge).
+- 3 safe near-edge placements from the rep run are now permanent
+  gate controls (tests/fixtures/replay/safe_edge_*). Re-gating v1
+  on the expanded set rejects it (ratchet: all 3 regressed).
+- v2 tightens to 8 cm (incident released 7 cm out; no safe r1
+  release sits at <= 8 cm). Gate 4/4 PASS on the expanded set.
+  Measured on the same plans: unseen unsafe-exec 47.8% -> 15.9%
+  (v1) -> 15.9% (v2); all-safe false refusals 11.5% -> 37.5%
+  (v1) -> 10.9% (v2). v2 keeps the full unsafe reduction with
+  baseline-level refusals. Both rules rolled back; seed-only
+  rulebook restored. Proof record: bench/learn_proof_v2.json.
+- report.py now reads/writes every text artifact as UTF-8 so the
+  ± in RESULTS.md renders on GitHub (was locale-encoded before).

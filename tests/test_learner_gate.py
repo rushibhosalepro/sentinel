@@ -21,7 +21,7 @@ def _candidate():
 
 def test_cases_baseline_allow():
     cases = G.load_cases()
-    assert len(cases) == 4
+    assert len(cases) == 7  # plate incident + 3 controls + 3 safe edge
     base = _base()
     for case in cases:
         v = check(case["motion"], case["graph"], base)

@@ -337,6 +337,12 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
         job = jobs.get()
         if job is None:
             return
+        if job.get("repeat") is not None:
+            # B-06: the model call happens in THIS thread, so the
+            # pool thread's set_repeat() never reaches it; the job
+            # carries the repeat explicitly (bench only).
+            from bench.cache import set_repeat
+            set_repeat(job["repeat"])
         note = None
         rounds = job.get("rounds", 0)
         trace: list[str] = list(job.get("trace", []))
@@ -695,7 +701,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   max_rounds: int | None = None,
                   skip_check: bool = False, reviewer=None,
                   passive_monitor: bool = False,
-                  cost_log=None, verdict_final: bool = False) -> None:
+                  cost_log=None, verdict_final: bool = False,
+                  repeat: int | None = None) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -710,7 +717,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     stages {objects: {id: pos}, person: {shift}} edits, max_rounds caps
     replans, skip_check bypasses Sentinel, reviewer(steps, facts) may
     refuse a plan, and passive_monitor records would-HALTs without
-    freezing.
+    freezing. repeat tags the job for the bench prompt cache (B-06);
+    None leaves the worker thread's repeat context untouched (live).
     """
     import imageio.v2 as imageio
     from pathlib import Path
@@ -766,7 +774,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
            "max_rounds": MAX_REPLAN_ROUNDS if max_rounds is None
            else max_rounds,
            "skip_check": skip_check, "reviewer": reviewer,
-           "cost_log": cost_log, "verdict_final": verdict_final}
+           "cost_log": cost_log, "verdict_final": verdict_final,
+           "repeat": repeat}
     if attack == "scene-text":
         from perception.reader import stage_attack_frame
         job["attack_frame"] = stage_attack_frame(model, data, props)
@@ -1071,7 +1080,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "skip_check": skip_check,
                                           "reviewer": reviewer,
                                           "cost_log": cost_log,
-                                          "verdict_final": verdict_final})
+                                          "verdict_final": verdict_final,
+                                          "repeat": repeat})
                                 _, script, rounds, trace, ask = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None

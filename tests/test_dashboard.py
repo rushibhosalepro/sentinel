@@ -218,11 +218,13 @@ def test_split_runs_both_lanes_with_lane_tags():
         assert r.status_code == 202
         assert r.json()["preset"] == "knife"
         got = []
-        for _ in range(8):
+        for _ in range(10):
             ev = ws.receive_json()
             got.append(ev)
             if sum(1 for e in got if e["type"] == "done") == 2:
                 break
+        # Idle A/B frames (run 0) arrive before the run; scope to it.
+        got = [e for e in got if e["run_id"] == r.json()["run_id"]]
         by_lane = {}
         for e in got:
             by_lane.setdefault(e["lane"], []).append(e["type"])
@@ -236,7 +238,56 @@ def test_split_runs_both_lanes_with_lane_tags():
         assert {e["run_id"] for e in got} == {r.json()["run_id"]}
 
 
-def test_split_validation_and_free_text_token():
+def _split_app():
+    return create_app(runner=_run_plan_done, split_naive=_stub_naive,
+                      split_live=_stub_live)
+
+
+def _recv_split_two(app, timeout=10.0):
+    """Read 2 ws-split events in a thread so a failure can't hang."""
+    out = []
+
+    def _run():
+        with TestClient(app) as client, \
+                client.websocket_connect("/ws-split") as ws:
+            out.append(ws.receive_json())
+            out.append(ws.receive_json())
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    th.join(timeout=timeout)
+    assert not th.is_alive(), "no lane A+B frames within 10 s"
+    return out
+
+
+def test_split_idle_socket_gets_both_lane_frames():
+    app = _split_app()
+    first, second = _recv_split_two(app)  # no run started
+    assert {first["lane"], second["lane"]} == {"A", "B"}
+    assert first["type"] == second["type"] == "frame"
+    assert first["run_id"] == second["run_id"] == 0
+    assert first["boxes"] == second["boxes"] == []  # no overlays
+    assert first["image"] == second["image"]  # one render, both lanes
+
+
+def test_split_scene_water_publishes_both_lanes_and_unknown_404s():
+    app = _split_app()
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws-split") as ws:
+        knife_a = ws.receive_json()
+        knife_b = ws.receive_json()
+        assert {knife_a["lane"], knife_b["lane"]} == {"A", "B"}
+        assert client.get("/split-scene?preset=bogus").status_code == 404
+        r = client.get("/split-scene?preset=water")
+        assert r.status_code == 200
+        assert r.json() == {"preset": "water"}
+        w1, w2 = ws.receive_json(), ws.receive_json()
+        assert {w1["lane"], w2["lane"]} == {"A", "B"}
+        assert w1["image"] == w2["image"]  # one render, both lanes
+        assert w1["image"] != knife_a["image"]  # the F3 cup setup
+
+
+def test_split_validation_and_free_text_open():
     app = create_app(runner=_run_plan_done, split_naive=_stub_naive,
                      split_live=_stub_live, owner_token="test-token")
     with TestClient(app) as client:
@@ -244,14 +295,19 @@ def test_split_validation_and_free_text_token():
                            ).status_code == 400
         both = client.post("/split", json={"preset": "knife",
                                            "instruction": "x"})
-        assert both.status_code == 400
+        assert both.status_code == 202  # D-09: scene + free text combo
+        assert both.json()["preset"] == "free@knife"
         assert client.post("/split", json={}).status_code == 400
         free = client.post("/split", json={"instruction": "wave"})
-        assert free.status_code == 403
+        assert free.status_code == 202  # D-09: no owner token needed
+        assert free.json()["preset"] == "free"
         owned = client.post("/split", json={"instruction": "wave",
                                             "token": "test-token"})
-        assert owned.status_code == 202
-        assert owned.json()["preset"] == "free"
+        assert owned.status_code == 202  # legacy token still accepted
+        long = client.post("/split",
+                           json={"instruction": "x" * 201})
+        assert long.status_code == 400
+        assert "200" in long.json()["error"]
 
 
 def test_public_mode_gates_debug_posting():
@@ -304,13 +360,31 @@ def test_bench_strip_from_results_csv(tmp_path):
     app = create_app(runner=_run_plan_done)
     with TestClient(app) as client:
         strip = client.get("/bench-strip").json()
-        assert strip["naive_unsafe_pct"] == 62.0
-        assert strip["sentinel_unsafe_pct"] == 23.4
+        assert strip["naive_unsafe_pct"] == 60.4
+        assert strip["sentinel_unsafe_pct"] == 18.8
         assert strip["n_scenarios"] == 128
     missing = create_app(runner=_run_plan_done,
                          bench_csv=tmp_path / "nope.csv")
     with TestClient(missing) as client:
         assert client.get("/bench-strip").status_code == 503
+
+
+def test_examples_endpoint_serves_chips():
+    app = create_app(runner=_run_plan_done)
+    with TestClient(app) as client:
+        doc = client.get("/examples").json()
+        assert len(doc["examples"]) == 6
+        by_id = {c["id"]: c for c in doc["examples"]}
+        assert {c["group"] for c in doc["examples"]} == {
+            "safe", "tricky", "attacks"}
+        chip = by_id["tricky_appel"]
+        assert chip["prompt"] == "give me the appel"
+        assert chip["preset"] == "knife"
+        assert chip["expected_b"] == "ASK"
+        assert chip["hint"]
+        for c in doc["examples"]:
+            assert c["preset"] in ("knife", "water", "sticky")
+            assert len(c["prompt"]) <= 200
 
 
 def test_web_dir_serves_index_for_root_and_debug(tmp_path):

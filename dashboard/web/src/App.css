@@ -268,18 +268,84 @@
   width: 100%;
 }
 
-.footer-a {
-  color: #cf222e;
+.footer-a,
+.footer-b {
+  font-size: 16px;
   font-weight: bold;
   min-height: 1.5em;
+  word-break: break-word;
+}
+
+.footer-a {
+  color: #cf222e;
 }
 
 .footer-b {
   color: #1a7f37;
-  font-family: monospace;
+}
+
+.instruction-box {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 18px;
+  line-height: 1.4;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.run-row {
+  align-items: center;
+}
+
+.run-primary {
+  font-size: 1.15rem;
+  font-weight: bold;
+  padding: 0.6rem 2.2rem;
+  background: #0969da;
+  color: #fff;
+  border: 1px solid #0969da;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.run-primary:disabled {
+  background: #8c959f;
+  border-color: #8c959f;
+  cursor: default;
+}
+
+.chips {
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.chip-group {
+  font-weight: bold;
   font-size: 0.9rem;
-  min-height: 1.5em;
-  word-break: break-word;
+  margin-right: 0.2rem;
+}
+
+.chip {
+  padding: 0.3rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  background: #f4f4f4;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.hint {
+  font-size: 0.95rem;
+  color: #444;
+  margin: 0.2rem 0;
 }
 
 .strip {

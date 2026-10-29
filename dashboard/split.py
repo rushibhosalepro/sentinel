@@ -26,15 +26,24 @@ POUR_GAP_CM = 25.0
 
 def resolve_split(preset: str | None = None,
                   instruction: str | None = None) -> dict:
-    """{name, instruction, preset, attack}; exactly one input, else ValueError."""
-    if (preset is None) == (instruction is None):
-        raise ValueError("give exactly one of preset or instruction")
-    if preset is not None:
-        if preset not in PRESETS:
-            raise ValueError(f"unknown preset {preset!r}")
-        return {"name": preset, **PRESETS[preset]}
-    return {"name": "free", "instruction": instruction, "preset": None,
-            "attack": None}
+    """{name, instruction, preset, attack}.
+
+    Preset alone runs its canned instruction; instruction alone runs
+    free text on the default scene; both run free text on that
+    preset's scene (judge chips). At least one is required.
+    """
+    if preset is None and instruction is None:
+        raise ValueError("give a preset, an instruction, or both")
+    if preset is not None and preset not in PRESETS:
+        raise ValueError(f"unknown preset {preset!r}")
+    if preset is None:
+        return {"name": "free", "instruction": instruction, "preset": None,
+                "attack": None}
+    scene = PRESETS[preset]
+    if instruction is None:
+        return {"name": preset, **scene}
+    return {"name": f"free@{preset}", "instruction": instruction,
+            "preset": scene["preset"], "attack": scene["attack"]}
 
 
 def _label(props: dict, oid: str) -> str:

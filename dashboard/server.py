@@ -50,9 +50,12 @@ class Instruction(BaseModel):
 
 class SplitRequest(BaseModel):
     preset: str | None = None  # knife | water | sticky (open to all)
-    instruction: str | None = None  # free text (owner token required)
+    instruction: str | None = None  # free text (open to all, <=200 ch)
     model: str = "spark"
-    token: str | None = None
+    token: str | None = None  # legacy: /split no longer needs it
+
+
+FREE_TEXT_MAX_CHARS = 200
 
 
 class AskDecision(BaseModel):
@@ -130,15 +133,12 @@ def _envelope(run_id: int, event: dict) -> dict:
             **event}
 
 
-def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
-    """Render one demo-camera frame + graph for a preset (lazy imports)."""
+def _render_demo_rgb(preset: str, idle: dict):
+    """Demo-camera RGB for a preset; lazy-loads the shared idle sim."""
     import mujoco
 
     import loop.live as live
-    from dashboard.events import (encode_jpeg_b64, frame_event, graph_event,
-                                  project_boxes)
-    from graph.scene_graph import attach_dashboard_edges, load_props
-    from sentinel.graph_view import graph_snapshot
+    from graph.scene_graph import load_props
     from sim.world import HEIGHT, WIDTH, load_scene
 
     if idle.get("model") is None:
@@ -156,10 +156,21 @@ def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
                                    width=WIDTH)
     try:
         renderer.update_scene(idle["data"], camera="demo")
-        frame = renderer.render()
+        return renderer.render()
     finally:
         with RENDER_LOCK:
             renderer.close()
+
+
+def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
+    """Render one demo-camera frame + graph for a preset (lazy imports)."""
+    from dashboard.events import (encode_jpeg_b64, frame_event, graph_event,
+                                  project_boxes)
+    from graph.scene_graph import attach_dashboard_edges
+    from sentinel.graph_view import graph_snapshot
+    from sim.world import HEIGHT, WIDTH
+
+    frame = _render_demo_rgb(preset, idle)
     graph = graph_snapshot(idle["model"], idle["data"], idle["props"])
     attach_dashboard_edges(graph, idle["model"], idle["data"],
                            idle["props"])
@@ -167,6 +178,44 @@ def _render_idle_frame(preset: str, idle: dict) -> tuple[dict, dict]:
                           "demo", WIDTH, HEIGHT)
     return (frame_event(encode_jpeg_b64(frame), boxes, "truth", 0.0),
             graph_event(graph))
+
+
+SPLIT_PRESETS = {"knife": "default", "water": "cup_next_to_laptop",
+                 "sticky": "default"}
+
+
+def render_split_idle(preset: str, idle: dict) -> dict:
+    """Clean demo-camera frame event for a split preset (D-08).
+
+    No boxes. Sticky draws the attack note text on the frame (same
+    staging as the demo). Raises ValueError on unknown presets.
+    """
+    import numpy as np
+
+    from dashboard.events import encode_jpeg_b64, frame_event
+
+    if preset not in SPLIT_PRESETS:
+        raise ValueError(f"unknown preset {preset!r}")
+    rgb = np.asarray(_render_demo_rgb(SPLIT_PRESETS[preset], idle))
+    if preset == "sticky":
+        from perception.lift3d import camera_params, project
+        from perception.reader import ATTACK_LINES, stage_note_text
+        from sim.world import HEIGHT, WIDTH
+
+        cam = camera_params(idle["model"], idle["data"], "demo",
+                            WIDTH, HEIGHT)
+        pos = np.asarray(idle["data"].xpos[
+            idle["model"].body("sticky_note").id], dtype=float)
+        u, v, _ = project(pos + np.array([0.0, 0.0, 0.01]), cam)
+        corners = pos + np.array([[dx, dy, 0.0]
+                                  for dx in (-0.025, 0.025)
+                                  for dy in (-0.025, 0.025)])
+        cu, _, _ = project(corners, cam)
+        width_px = max(12, int(np.ptp(np.asarray(cu, dtype=float))))
+        rgb = np.asarray(stage_note_text(rgb, (int(u), int(v)),
+                                         ATTACK_LINES,
+                                         max_width_px=width_px))
+    return frame_event(encode_jpeg_b64(rgb), [], "truth", 0.0)
 
 
 def create_app(runner=run_loop_live, owner_token: str | None = None,
@@ -199,7 +248,8 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
              "live_run_id": None, "incident_idx": None,
              "pending": deque(), "hits": deque(),
              "split_subs": set(), "split_latest": {},
-             "split_history": [], "split_run_id": 0}
+             "split_history": [], "split_run_id": 0,
+             "split_preset": "knife", "split_idle_frames": {}}
 
     def _incident_index():
         """{event id: (incident_n, ts)} from the event log (cached)."""
@@ -325,10 +375,36 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         _publish(frame)
         _publish(graph)
 
+    def _publish_split_idle(preset: str, clear: bool = True):
+        """Render once (cached per preset), send to both lanes (D-08).
+
+        Idle always carries run 0: it belongs to no run. clear=True
+        (explicit /split-scene) replaces old run frames/history with
+        the fresh setup; clear=False (connect-time seeding) only
+        fills lanes that have no frame yet, so a run that published
+        while the render was in flight is never clobbered.
+        """
+        with state["render_lock"]:
+            if preset not in state["split_idle_frames"]:
+                state["split_idle_frames"][preset] = render_split_idle(
+                    preset, state["idle"])
+            frame = state["split_idle_frames"][preset]
+        with state["lock"]:
+            state["split_preset"] = preset
+            if clear:
+                state["split_latest"] = {}
+                state["split_history"] = []
+            lanes = [lane for lane in ("A", "B")
+                     if clear or ("frame", lane)
+                     not in state["split_latest"]]
+        for lane in lanes:
+            _publish_split(lane, 0, frame)
+
     if idle_render:
         def _startup_render():
             try:
                 _publish_idle("default")
+                _publish_split_idle("knife")
             except Exception as e:  # noqa: BLE001 - page stays in loading
                 print(f"idle scene render failed: {e}")
 
@@ -350,6 +426,19 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                                 status_code=404)
         except Exception as e:  # noqa: BLE001 - render failed, stay loading
             print(f"idle scene render failed: {e}")
+            return JSONResponse({"error": "scene render failed"},
+                                status_code=500)
+        return {"preset": preset}
+
+    @app.get("/split-scene")
+    def split_scene(preset: str = "knife"):
+        try:
+            _publish_split_idle(preset)
+        except ValueError:
+            return JSONResponse({"error": f"unknown preset {preset!r}"},
+                                status_code=404)
+        except Exception as e:  # noqa: BLE001 - render failed, stay loading
+            print(f"split idle render failed: {e}")
             return JSONResponse({"error": "scene render failed"},
                                 status_code=500)
         return {"preset": preset}
@@ -415,10 +504,19 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                                  instruction=body.instruction)
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
-        if spec["name"] == "free" and not _token_ok(body.token):
-            return JSONResponse(
-                {"error": "free text needs the owner link (?owner=...)"},
-                status_code=403)
+        if body.instruction is not None:
+            # D-09: free text for everyone. Guardrails are the 200-char
+            # cap plus the shared rate limit, budget, and queue below.
+            # The text travels only as the owner's instruction (user
+            # role) in both lanes, never as system text.
+            if len(body.instruction) > FREE_TEXT_MAX_CHARS:
+                return JSONResponse(
+                    {"error": f"instruction too long: at most "
+                              f"{FREE_TEXT_MAX_CHARS} characters"},
+                    status_code=400)
+            if not body.instruction.strip():
+                return JSONResponse({"error": "instruction is empty"},
+                                    status_code=400)
         denied = _guarded(request)
         if denied is not None:
             return denied
@@ -514,6 +612,19 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         return {"naive_unsafe_pct": _rate("naive"),
                 "sentinel_unsafe_pct": _rate("loop"),
                 "n_scenarios": len({r["scenario"] for r in rows})}
+
+    @app.get("/examples")
+    def examples():
+        """D-09 example chips (single source: tests/fixtures file)."""
+        path = REPO_ROOT / "tests" / "fixtures" / "examples.json"
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"examples": []}
+        if not isinstance(doc, dict) or \
+                not isinstance(doc.get("examples"), list):
+            return {"examples": []}
+        return {"examples": doc["examples"]}
 
     @app.post("/incident")
     def file_incident(body: Incident):
@@ -632,13 +743,39 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
     async def ws_split(websocket: WebSocket):
         await websocket.accept()
         mine: queue.Queue = queue.Queue()
-        with state["lock"]:
-            state["split_subs"].add(mine)
-            catchup = [(rid, key[1], ev)
-                       for key, (rid, ev)
-                       in state["split_latest"].items()]
-            catchup += list(state["split_history"])
         loop = asyncio.get_running_loop()
+        with state["lock"]:
+            # Subscribe first: anything published from here on lands
+            # in latest/history AND our queue, so the catchup below
+            # cannot miss it.
+            state["split_subs"].add(mine)
+            preset = state["split_preset"]
+            need_idle = not state["split_latest"] \
+                and not state["split_history"]
+        if need_idle:
+            # Nothing published yet: seed both lanes with the preset
+            # idle (no clearing), off the event loop.
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: _publish_split_idle(preset, clear=False))
+            except Exception as e:  # noqa: BLE001 - stay in loading
+                print(f"split idle render failed: {e}")
+        # Drop anything queued during the render: it is all in
+        # latest/history too, which is what the catchup reads (a
+        # publish landing between drain and re-read may arrive
+        # twice; every consumer here is idempotent).
+        try:
+            while True:
+                mine.get_nowait()
+        except queue.Empty:
+            pass
+        with state["lock"]:
+            replay = dict(state["split_latest"])
+            history = list(state["split_history"])
+        catchup = [(rid, key[1], ev)
+                   for key, (rid, ev) in replay.items()]
+        catchup += history
         try:
             for rid, lane, event in catchup:
                 await websocket.send_json(

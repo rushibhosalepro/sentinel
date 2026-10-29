@@ -110,7 +110,8 @@ def run_one(scenario: dict, condition: str, repeat: int, ctx: dict) -> dict:
             render=False, scene=scenario.get("scene"),
             max_rounds=cfg["max_rounds"], skip_check=cfg["skip_check"],
             reviewer=reviewer, passive_monitor=cfg["passive_monitor"],
-            cost_log=cost_log, verdict_final=cfg["verdict_final"])
+            cost_log=cost_log, verdict_final=cfg["verdict_final"],
+            repeat=repeat)
     except SystemExit:
         pass
     except Exception as e:  # noqa: BLE001 - one bad cell never kills a run

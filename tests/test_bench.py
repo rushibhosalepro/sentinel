@@ -134,6 +134,49 @@ def test_cached_chat_repeats_independent(tmp_path, monkeypatch):
     C.set_repeat(1)
 
 
+def test_headless_repeats_use_independent_cache_keys(tmp_path,
+                                                     monkeypatch):
+    """B-06 end to end: repeat rides the job, not the pool thread.
+
+    The planner runs in a worker thread where the pool thread's
+    thread-local repeat is invisible; before the job-dict fix every
+    repeat silently reused the r1 cache entry (spread 0.0).
+    """
+    import planner.model_client as mc
+    import planner.planner as planner_mod
+    from loop.live import _run_headless
+
+    content = json.dumps({"steps": [
+        {"id": "s1", "primitive": "stop", "args": {},
+         "serves_instruction": "test", "why": "test"}]})
+    calls = []
+
+    def fake_chat(client, **kw):
+        calls.append(kw)
+        return content, {"prompt_tokens": 1, "completion_tokens": 1}, 0.5
+
+    monkeypatch.setattr(mc, "chat", fake_chat)
+    monkeypatch.setattr(C, "CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(planner_mod, "model_chat", C.cached_chat)
+    spec = {"id": "m", "effort_ok": False, "price_in": 1.0,
+            "price_out": 1.0}
+    monkeypatch.setattr(planner_mod, "get_client",
+                        lambda model: (None, "m", spec, "m"))
+    run = {"n": 0}
+
+    def _headless(repeat):
+        run["n"] += 1
+        _run_headless("wave", str(tmp_path / f"v{run['n']}.mp4"),
+                      render=False, sink=lambda e: None, repeat=repeat,
+                      cost_log=tmp_path / f"c{run['n']}.jsonl")
+
+    _headless(1)
+    _headless(2)  # independent repeat: a miss, not r1's plan
+    assert len(calls) == 2
+    _headless(2)  # same repeat: cache hit
+    assert len(calls) == 2
+
+
 def test_parse_review():
     assert P.parse_review('{"safe": true, "reason": "ok"}') == (True, "ok")
     assert P.parse_review('{"safe": false}') == (False, "judged unsafe")
@@ -254,6 +297,43 @@ def test_learning_section_before_after():
     assert "| unsafe-exec % (2 unsafe cells) | 100.0 | 50.0 |" in text
     assert "| false refusals % (1 safe cells) | 0.0 | 100.0 |" in text
     assert "edge_release_slow" in text and "inc-9" in text
+
+
+def test_learning_section_safe_audit_and_v2():
+    def _row(scen, seen, safe, bad, ref):
+        return {"condition": "loop", "scenario": scen, "seen": seen,
+                "safe": safe, "unsafe_executed": bad,
+                "false_refusal": ref}
+
+    before = [_row("cup_to_edge_v1", False, False, True, False),
+              _row("cup_middle_v0", False, True, False, False),
+              _row("pour_default_v0", True, True, False, False)]
+    after = [_row("cup_to_edge_v1", False, False, False, False),
+             _row("cup_middle_v0", False, True, False, False)]
+    after_safe = [_row("cup_middle_v0", False, True, False, True),
+                  _row("pour_default_v0", True, True, False, False)]
+    after_v2 = [_row("cup_to_edge_v1", False, False, False, False),
+                _row("cup_middle_v0", False, True, False, False)]
+    after_safe_v2 = [_row("cup_middle_v0", False, True, False, False),
+                     _row("pour_default_v0", True, True, False, False)]
+    proof = {"incident": "inc-9", "rule": {"id": "edge_v1"},
+             "report": {"accepted": True,
+                        "stages": [{"name": "schema", "passed": True,
+                                    "detail": "ok"}]}}
+    proof_v2 = {"incident": "inc-9", "rule": {"id": "edge_v2"},
+                "report": {"accepted": True,
+                           "stages": [{"name": "schema", "passed": True,
+                                       "detail": "ok"}]},
+                "supersedes": {"expanded_gate": {"reason": "ratchet: x"}}}
+    text = R._learning_section(before, after, proof,
+                               rows_after_safe=after_safe,
+                               rows_after_v2=after_v2,
+                               rows_after_safe_v2=after_safe_v2,
+                               proof_v2=proof_v2)
+    assert "| unsafe-exec % (1 unsafe cells) | 100.0 | 0.0 | 0.0 |" in text
+    assert "| false refusals % (2 safe cells) | 0.0 | 50.0 | 0.0 |" \
+        in text
+    assert "edge_v2" in text and "ratchet: x" in text
 
 
 def test_write_csv_one_row_per_cell(tmp_path):

@@ -499,11 +499,16 @@ def _typo_finding(motion, graph, instruction: str):
         known.update(oid.split("_"))
     best = None
     for word in re.findall(r"[a-z]+", instruction.lower()):
-        if len(word) < 3 or word in known:
+        if len(word) < 4 or word in known:
+            # len>=4: 3-letter verbs ("put", "cut") sit within 2 edits
+            # of short names ("cup") and must never count as typos.
             continue
         for obj in held:
             dist = _edit_distance(word, obj)
-            if dist <= 2 and (best is None or dist < best[0]):
+            # Tolerance scales with length: a 2-edit match on a
+            # 4-letter word ("just"/"jug") is coincidence, not a typo.
+            limit = 1 if len(word) == 4 else 2
+            if dist <= limit and (best is None or dist < best[0]):
                 best = (dist, word, obj)
     if best is None:
         return None

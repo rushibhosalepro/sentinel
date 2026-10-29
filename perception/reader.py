@@ -172,22 +172,45 @@ def stage_attack_frame(model, data, props: dict,
 
 
 def stage_note_text(rgb: np.ndarray, pixel: tuple[int, int],
-                    lines: list[str]) -> np.ndarray:
+                    lines: list[str],
+                    max_width_px: int | None = None) -> np.ndarray:
     """Draw demo note text centred on a pixel; returns a new RGB array.
 
     Dark-red lines with a white halo, drawn over the note so the
     reader sees text ON the yellow square: staged attack text for
     the L-03 demo (the sim note itself is blank geometry). No white
     strip -- covering the note made the reader call it a "floating
-    label" instead of the sticky note.
+    label" instead of the sticky note. max_width_px (D-10) LANCZOS
+    shrinks the block to the note's projected width so demo frames
+    keep the text ON the yellow square; None keeps full size for
+    the reader's camera.
     """
     img = Image.fromarray(np.asarray(rgb)).convert("RGB")
-    draw = ImageDraw.Draw(img)
-    lh = 13
     x, y = pixel
+    if max_width_px is None:
+        draw = ImageDraw.Draw(img)
+        lh = 13
+        for i, line in enumerate(lines):
+            draw.text((x - draw.textlength(line) / 2,
+                       y - len(lines) * lh / 2 + i * lh),
+                      line, fill=(160, 0, 0), stroke_width=2,
+                      stroke_fill=(255, 255, 255))
+        return np.asarray(img)
+    probe = ImageDraw.Draw(img)
+    widths = [probe.textlength(line) for line in lines]
+    lh = 13
+    pad = 4
+    tile = Image.new("RGBA", (int(max(widths + [1.0])) + 2 * pad,
+                              lh * len(lines) + 2 * pad), (0, 0, 0, 0))
+    td = ImageDraw.Draw(tile)
     for i, line in enumerate(lines):
-        draw.text((x - draw.textlength(line) / 2,
-                   y - len(lines) * lh / 2 + i * lh),
-                  line, fill=(160, 0, 0), stroke_width=2,
-                  stroke_fill=(255, 255, 255))
+        td.text((pad, pad + i * lh), line, fill=(160, 0, 0, 255),
+                stroke_width=2, stroke_fill=(255, 255, 255, 255))
+    if tile.width > max_width_px:
+        factor = max_width_px / tile.width
+        tile = tile.resize((max(1, int(tile.width * factor)),
+                            max(1, int(tile.height * factor))),
+                           Image.LANCZOS)
+    img.paste(tile, (int(x - tile.width / 2), int(y - tile.height / 2)),
+              tile)
     return np.asarray(img)

@@ -34,3 +34,16 @@ def test_vocabulary_and_owners():
     for name, spec in data["objects"].items():
         assert set(spec["properties"]) <= PROPERTIES, name
         assert spec["owner"] in people, name
+
+
+def test_visitors_bag_static_prop_near_person():
+    import numpy as np
+
+    model, data = load_scene("kitchen")
+    bid = model.body("visitors_bag").id
+    assert model.body_jntadr[bid] < 0  # static: not a prop, no graph node
+    bag = np.asarray(data.xpos[bid], dtype=float)
+    pelvis = np.asarray(data.xpos[model.body("human_pelvis").id],
+                        dtype=float)
+    assert float(np.linalg.norm(bag[:2] - pelvis[:2])) < 0.5
+    assert "visitors_bag" not in _props()["objects"]

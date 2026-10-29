@@ -4,12 +4,13 @@ import { Timeline, VerdictCard } from './App.jsx'
 
 const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws-split`
 
-const PRESETS = [
-  { id: 'knife', label: 'Knife hand-over' },
-  { id: 'water', label: 'Water near laptop' },
-  { id: 'sticky', label: 'Sticky note' },
-  { id: 'free', label: 'Free text' },
+const CHIP_GROUPS = [
+  ['safe', 'Safe'],
+  ['tricky', 'Tricky'],
+  ['attacks', 'Attacks'],
 ]
+
+const MAX_CHARS = 200
 
 function bFooter(rounds, doneB) {
   const nums = Object.keys(rounds)
@@ -17,7 +18,7 @@ function bFooter(rounds, doneB) {
     .sort((a, b) => a - b)
     .filter((n) => rounds[n].verdict)
   if (nums.length === 0) {
-    return doneB ? `done: ${doneB.status}` : 'waiting for Sentinel…'
+    return doneB ? `done: ${doneB.status}` : 'ready: Muse Spark × Sentinel'
   }
   const parts = []
   nums.forEach((n, i) => {
@@ -41,6 +42,7 @@ function bFooter(rounds, doneB) {
 }
 
 export default function SplitView() {
+  // Internal scene setup: default kitchen until a chip loads its own.
   const [preset, setPreset] = useState('knife')
   const [instruction, setInstruction] = useState('')
   const [connected, setConnected] = useState(false)
@@ -55,9 +57,9 @@ export default function SplitView() {
   const [doneB, setDoneB] = useState(null)
   const [whyRound, setWhyRound] = useState(null)
   const [strip, setStrip] = useState(null)
-  const [ownerToken] = useState(
-    () => new URLSearchParams(location.search).get('owner') || '',
-  )
+  const [examples, setExamples] = useState([])
+  const [hint, setHint] = useState(null)
+  const [queued, setQueued] = useState(null)
   const runRef = useRef(null)
 
   function clearRun() {
@@ -76,6 +78,10 @@ export default function SplitView() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => data && setStrip(data))
       .catch(() => {})
+    fetch('/examples')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setExamples(data.examples || []))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -84,6 +90,7 @@ export default function SplitView() {
     let alive = true
     function resetRun(runId) {
       runRef.current = runId
+      setQueued(null)
       clearRun()
     }
     function mergeRound(n, patch) {
@@ -160,15 +167,27 @@ export default function SplitView() {
     }
   }, [])
 
+  function selectPreset(id) {
+    setPreset(id)
+    clearRun()
+    setStatus('idle')
+    fetch(`/split-scene?preset=${id}`).catch(() => {})
+  }
+
+  function pickChip(chip) {
+    selectPreset(chip.preset)
+    setInstruction(chip.prompt)
+    setHint(chip.hint)
+  }
+
   async function runBoth(e) {
     e.preventDefault()
     clearRun()
+    setQueued(null)
     setStatus('running both lanes…')
     setRunning(true)
-    const body =
-      preset === 'free'
-        ? { instruction, token: ownerToken || undefined }
-        : { preset }
+    const text = instruction.trim()
+    const body = text ? { preset, instruction: text } : { preset }
     const r = await fetch('/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -176,14 +195,23 @@ export default function SplitView() {
     })
     const data = await r.json().catch(() => ({}))
     if (data.status === 'queued') {
+      setQueued(data.position)
       setStatus(`queued #${data.position}…`)
-    } else if (r.status === 403) {
-      setStatus('free text needs the owner link (?owner=…)')
-      setRunning(false)
     } else if (!r.ok) {
-      setStatus(data.error || `server error ${r.status}`)
+      const err = data.error || ''
+      setStatus(
+        /too long/.test(err)
+          ? 'Keep it under 200 characters'
+          : err || `server error ${r.status}`,
+      )
       setRunning(false)
     }
+  }
+
+  function runLabel() {
+    if (!running) return 'Run both'
+    if (queued !== null && queued !== undefined) return `queued #${queued}…`
+    return 'running…'
   }
 
   const roundNums = Object.keys(roundsB)
@@ -198,38 +226,61 @@ export default function SplitView() {
           (debug view)
         </a>
       </h1>
-      <form onSubmit={runBoth} className="row">
-        <input
+      <form onSubmit={runBoth}>
+        <textarea
           value={instruction}
           onChange={(e) => {
             setInstruction(e.target.value)
-            setPreset('free')
+            setHint(null)
           }}
-          placeholder="instruction (free text needs ?owner=…)"
-          size={44}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) runBoth(e)
+          }}
+          placeholder="Tell the robot what to do... e.g. hand me the knife"
+          rows={2}
+          maxLength={MAX_CHARS}
+          className="instruction-box"
         />
-        <button type="submit" disabled={running}>
-          Run both
-        </button>
-        <span className={connected ? 'ok' : 'bad'}>
-          {connected ? '● ws connected' : '○ ws disconnected'}
-        </span>
-      </form>
-      <p className="row presets">
-        {PRESETS.map((p) => (
+        <p className="row run-row">
           <button
-            key={p.id}
-            type="button"
-            onClick={() => setPreset(p.id)}
+            type="submit"
             disabled={running}
-            style={
-              preset === p.id ? { fontWeight: 'bold' } : undefined
-            }
+            className="run-primary"
           >
-            {p.label}
+            {runLabel()}
           </button>
-        ))}
-      </p>
+          <span className={connected ? 'ok' : 'bad'}>
+            {connected ? '● ws connected' : '○ ws disconnected'}
+          </span>
+        </p>
+      </form>
+      {CHIP_GROUPS.map(
+        ([group, label]) =>
+          examples.some((c) => c.group === group) && (
+            <p key={group} className="row chips">
+              <span className="chip-group">{label}:</span>
+              {examples
+                .filter((c) => c.group === group)
+                .map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="chip"
+                    onClick={() => pickChip(c)}
+                    disabled={running}
+                    title={c.hint}
+                  >
+                    {c.prompt}
+                  </button>
+                ))}
+            </p>
+          ),
+      )}
+      {hint && (
+        <p className="hint">
+          watch: {hint}
+        </p>
+      )}
       <p className="status">{status}</p>
       <div className="lanes">
         <div className="lane">
@@ -246,10 +297,12 @@ export default function SplitView() {
             <img src={imageA} alt="lane A camera" />
           ) : (
             <div className="placeholder">
-              <p>lane A camera</p>
+              <p>loading scene…</p>
             </div>
           )}
-          <p className="footer-a">{outcomeA || '…'}</p>
+          <p className="footer-a">
+            {outcomeA || 'ready: same Muse Spark, no Sentinel'}
+          </p>
         </div>
         <div className="lane">
           <p>
@@ -265,7 +318,7 @@ export default function SplitView() {
             <img src={imageB} alt="lane B camera" />
           ) : (
             <div className="placeholder">
-              <p>lane B camera</p>
+              <p>loading scene…</p>
             </div>
           )}
           <p className="footer-b">{bFooter(roundsB, doneB)}</p>

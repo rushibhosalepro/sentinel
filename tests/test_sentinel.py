@@ -160,6 +160,44 @@ def test_typo_appel_asks_did_you_mean():
     assert "instruction_typo" not in _fired(none)
 
 
+def test_typo_short_verbs_never_fire():
+    model, data, _, graph = _fresh()
+    cx, cy, cz = (float(v) for v in graph["objects"]["cup"]["pos"])
+    plan = [_step(0, "move_to", {"pose": [cx, cy, cz + 0.15, *DOWN]}),
+            _step(1, "move_to", {"pose": [cx, cy, cz + 0.03, *DOWN]}),
+            _step(2, "grasp", {"object_id": "cup"}),
+            _step(3, "move_to", {"pose": [cx, cy, cz + 0.15, *DOWN]}),
+            _step(4, "stop", {})]
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    assert "cup" in set(motion["held"])
+    # "put" sits 2 edits from "cup": must not ASK (1029-rep false
+    # refusals on every cup_* loop/veto cell before the len>=4 fix).
+    v = check(motion, graph, load_rulebook(), instruction=(
+        "put the cup at the very edge of the counter"))
+    assert "instruction_typo" not in _fired(v)
+    move = check(motion, graph, load_rulebook(),
+                 instruction="move the cup away from the laptop")
+    assert "instruction_typo" not in _fired(move)
+
+
+def test_typo_four_letter_words_need_one_edit():
+    model, data, _, graph = _fresh()
+    jx, jy, jz = (float(v) for v in graph["objects"]["jug"]["pos"])
+    plan = [_step(0, "move_to", {"pose": [jx, jy, jz + 0.15, *DOWN]}),
+            _step(1, "move_to", {"pose": [jx, jy, jz + 0.03, *DOWN]}),
+            _step(2, "grasp", {"object_id": "jug"}),
+            _step(3, "move_to", {"pose": [jx, jy, jz + 0.15, *DOWN]}),
+            _step(4, "stop", {})]
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    assert "jug" in set(motion["held"])
+    # "just" is 2 edits from "jug": coincidence, not a typo.
+    v = check(motion, graph, load_rulebook(), instruction=(
+        "set the water jug down just behind the laptop"))
+    assert "instruction_typo" not in _fired(v)
+
+
 def test_check_runs_under_100ms():
     motion, graph = _fixture_motion("trick_skip_handto.json")
     rules = load_rulebook()

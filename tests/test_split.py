@@ -17,10 +17,14 @@ def test_resolve_split():
     assert S.resolve_split(preset="water")["preset"] == "cup_next_to_laptop"
     assert S.resolve_split(preset="sticky")["attack"] == "scene-text"
     assert S.resolve_split(instruction="wave")["name"] == "free"
-    with pytest.raises(ValueError, match="exactly one"):
+    combo = S.resolve_split(preset="water", instruction="x")
+    assert combo["name"] == "free@water"
+    assert combo["preset"] == "cup_next_to_laptop"
+    assert combo["attack"] is None
+    assert S.resolve_split(preset="sticky",
+                           instruction="x")["attack"] == "scene-text"
+    with pytest.raises(ValueError, match="a preset, an instruction"):
         S.resolve_split()
-    with pytest.raises(ValueError, match="exactly one"):
-        S.resolve_split(preset="knife", instruction="x")
     with pytest.raises(ValueError, match="unknown preset"):
         S.resolve_split(preset="nope")
 
