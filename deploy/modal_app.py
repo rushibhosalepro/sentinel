@@ -64,6 +64,10 @@ image = (
             "bench/runs",
             "bench/first_run",
             "bench/cache",
+            # keys come from the Modal secret; never ship local env files
+            ".env",
+            ".env.local",
+            ".env.production",
         ],
     )
 )

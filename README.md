@@ -14,10 +14,10 @@ See [`PLAN.md`](PLAN.md) (single source of truth) for the full build plan.
 
 ## Try it
 
-- Public demo: run `modal deploy deploy/modal_app.py` (see
-  [`deploy/modal_app.py`](deploy/modal_app.py) for the one-time secret
-  setup) and open the `https://...` URL it prints. `/` is the
-  with-vs-without split view, `/debug` the full dashboard.
+- Public demo: https://rushi-bhosale84--sentinel-web.us-east.modal.run
+  (`/` split view, `/debug` dashboard; redeploy with
+  `modal deploy deploy/modal_app.py`, secrets in
+  [`deploy/modal_app.py`](deploy/modal_app.py)).
 - Local: `uv run uvicorn dashboard.server:app --port 8000`, then
   `cd dashboard/web && npm run dev` and open http://localhost:5173/
   (split view) or http://localhost:5173/debug (dashboard).

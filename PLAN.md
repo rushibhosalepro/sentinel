@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.25** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.26** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -261,7 +261,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** the headline table is filled with real numbers.
 
 ### Phase 8: Deploy, docs, video, submit (Nov 3–4)
-- [ ] **F-01** Deploy on Modal: `deploy/modal_app.py` (MUJOCO_GL=egl headless, FastAPI + built web from one endpoint, secrets META_API_KEY→MODEL_API_KEY/BASETEN_API_KEY/OWNER_TOKEN, public URL). Guardrails in server: one run at a time (FIFO queue, position shown — replaces 409), 10 runs/IP/hour (429), daily $ budget from costs.jsonl (polite stop), presets-only by default (free text behind ?owner= token; public_mode also gates /debug posting), /health carries queue + budget. README "Try it" link.
+- [x] **F-01** Deploy on Modal: `deploy/modal_app.py` (MUJOCO_GL=egl headless, FastAPI + built web from one endpoint, secrets META_API_KEY→MODEL_API_KEY/BASETEN_API_KEY/OWNER_TOKEN, public URL). Guardrails in server: one run at a time (FIFO queue, position shown — replaces 409), 10 runs/IP/hour (429), daily $ budget from costs.jsonl (polite stop), presets-only by default (free text behind ?owner= token; public_mode also gates /debug posting), /health carries queue + budget. README "Try it" link.
 - [ ] **F-02** README: problem → demo → how it works → results → limits → licences → what was built during the hackathon
 - [ ] **F-03** 3-minute demo video (script in §8), uploaded and public
 - [ ] **F-04** X post with the sticky-note / knife clip; link submitted for Most Viral
@@ -421,6 +421,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.23 | Oct 29 | D-06 done: graph event carries real scene_graph edges (ON/NEAR/ABOVE/INSIDE/HAS) + counter node; web draws exactly those, hazard-only NEAR, verdict overlay red/amber + captions, owner group; 311 tests green |
 | v1.24 | Oct 29 | Phase 8a spec: D-07 split view (/ vs /debug, naive vs Sentinel lanes, /ws-split, results strip, split mp4s), F-01 Modal + guardrails (queue, rate limit, budget, presets-only, health) |
 | v1.25 | Oct 29 | Phase 8a built: D-07 done (split lanes live, 3 mp4s + 3 page screenshots, strip live); F-01 code done (modal_app.py syntax-checked, guardrails pinned, README Try-it) — first deploy + public URL pending (Modal CLI present but unauthenticated; needs `modal token new`); 325 tests green |
+| v1.26 | Oct 29 | F-01 done: authenticated Modal, secret created, deployed (modal_app.py .env-before-add_local_dir fix), public URL live and verified end to end (page + sticky split: A frames + done, B BLOCK) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
