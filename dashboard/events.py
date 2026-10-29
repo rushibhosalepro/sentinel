@@ -19,8 +19,13 @@ VERDICT = "verdict"
 HALT = "halt"
 CLEAR = "clear"
 DONE = "done"
+PROPOSAL = "proposal"
+FEEDBACK = "feedback"
+ASK = "ask"
+PATH = "path"
 
-ALL_TYPES = (FRAME, GRAPH, PLAN, VERDICT, HALT, CLEAR, DONE)
+ALL_TYPES = (FRAME, GRAPH, PLAN, VERDICT, HALT, CLEAR, DONE,
+             PROPOSAL, FEEDBACK, ASK, PATH)
 
 
 def to_jsonable(obj):
@@ -60,11 +65,42 @@ def plan_event(steps: list, rounds: int) -> dict:
 
 
 def verdict_event(round_no: int, kind: str, findings: list,
-                  feedback: str | None, why_path: list[str]) -> dict:
-    """One round's verdict: kind + findings + the why path (trace)."""
+                  feedback: list | None, why_path: list) -> dict:
+    """One round's verdict: kind + findings + structured why from check().
+
+    why_path entries are {rule, verdict, hard, t, origin, reason,
+    predicates, steps, relations, params}; why_path_for(trace) stays as
+    fallback.
+    """
     return {"type": VERDICT, "round": round_no, "kind": kind,
             "findings": to_jsonable(findings), "feedback": feedback,
-            "why_path": list(why_path)}
+            "why_path": to_jsonable(why_path)}
+
+
+def proposal_event(round_no: int, model: str, latency_s: float,
+                   n_steps: int) -> dict:
+    """What the planner proposed this round (D-04 timeline)."""
+    return {"type": PROPOSAL, "round": round_no, "model": model,
+            "latency_s": round(float(latency_s), 1), "n_steps": n_steps}
+
+
+def feedback_event(round_no: int, note: str) -> dict:
+    """Constraints (or the build-error note) sent back to the planner."""
+    return {"type": FEEDBACK, "round": round_no, "note": note}
+
+
+def ask_event(ask_id: str, round_no: int, question: str,
+              findings: list) -> dict:
+    """Final ASK awaiting the owner's approve/deny (D-05)."""
+    return {"type": ASK, "ask_id": ask_id, "round": round_no,
+            "question": question, "findings": to_jsonable(findings)}
+
+
+def path_event(round_no: int, points: list, fires: list) -> dict:
+    """Planned gripper path, top-down [[x, y]]; fires = points near a
+    finding's t (drawn red)."""
+    return {"type": PATH, "round": round_no,
+            "points": to_jsonable(points), "fires": to_jsonable(fires)}
 
 
 def halt_event(t: float, dist_cm: float, what: str) -> dict:

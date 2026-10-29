@@ -290,6 +290,50 @@ def _node_of(ev: dict) -> str | None:
     return None
 
 
+def _origin_of(rule: dict) -> str:
+    """seed for hand-written rules, learned once R-02 revises one."""
+    return "learned" if rule.get("learned_from") else "seed"
+
+
+def _steps_of(motion: dict, scope: str, item, ev: dict) -> list[str]:
+    """Plan step ids behind the firing sample/event (D-03 Why?)."""
+    if scope == "sample":
+        ss = motion.get("sample_steps") or []
+        return [ss[item]] if item < len(ss) else []
+    if scope == "event":
+        return [item["step_id"]] if item.get("step_id") else []
+    obj = ev.get("obj")
+    if obj is None:  # plan-level taint (scene text): the whole plan
+        return list(motion.get("step_ids", []))
+    ss = motion.get("sample_steps") or []
+    held = motion.get("held") or []
+    return sorted({ss[i] for i, h in enumerate(held)
+                   if h == obj and i < len(ss)})
+
+
+def _relations_of(rule_id: str, ev: dict) -> list[dict]:
+    """Graph-relation triples the rule fired on (D-03 Why?)."""
+    subj = ev.get("obj", "motion")
+    who = ev.get("person") or ev.get("electronic")
+    if rule_id == "sharp_toward_person":
+        rel = "POINTS_AT"
+    elif rule_id == "liquid_above_electronic":
+        rel = "ABOVE"
+    elif rule_id == "restricted_item":
+        rel = "GIVEN_TO"
+    elif rule_id == "unknown_object":
+        return [{"subj": ev.get("obj"), "rel": "MISSING_FROM",
+                 "obj": "scene_graph"}]
+    elif rule_id == "scene_text_provenance":
+        return [{"subj": "motion", "rel": "DERIVED_FROM",
+                 "obj": ev.get("derived_from") or "unknown"}]
+    else:
+        rel = "NEAR"
+    if subj is None or who is None:
+        return []
+    return [{"subj": subj, "rel": rel, "obj": who}]
+
+
 def check(motion, graph, rules=None) -> dict:
     """Evaluate the rulebook over the motion; most severe verdict wins."""
     if rules is None:
@@ -329,7 +373,13 @@ def check(motion, graph, rules=None) -> dict:
                              "_verdict": rule["verdict"],
                              "_hard": rule["hard"],
                              "_hint": rule["constraint_hint"],
-                             "_fixable": rule["fixable"]})
+                             "_fixable": rule["fixable"],
+                             "_origin": _origin_of(rule),
+                             "_reason": rule.get("reason", ""),
+                             "_predicates": ev,
+                             "_steps": _steps_of(motion, scope, item, ev),
+                             "_relations": _relations_of(rule["id"], ev),
+                             "_params": rule["when"]})
             break  # first firing per rule
     # C-09: fill the liquid hint's {safe_spot} from the graph. No spot
     # (crowded counter, or a graph that never computed one) downgrades
@@ -351,7 +401,11 @@ def check(motion, graph, rules=None) -> dict:
     ordered = sorted(findings,
                      key=lambda f: SEVERITY[f["_verdict"]], reverse=True)
     why_path = [{"rule": f["rule"], "verdict": f["_verdict"],
-                 "hard": f["_hard"], "t": f["t"]} for f in ordered]
+                 "hard": f["_hard"], "t": f["t"],
+                 "origin": f["_origin"], "reason": f["_reason"],
+                 "predicates": f["_predicates"], "steps": f["_steps"],
+                 "relations": f["_relations"],
+                 "params": f["_params"]} for f in ordered]
     # Feedback explains the verdict: hints from soft fixable findings AT
     # the winning severity. Any HARD finding kills all feedback (never
     # teach a jailbroken planner), even when a soft finding fired too.
@@ -361,7 +415,9 @@ def check(motion, graph, rules=None) -> dict:
              and f["_fixable"] and f["_hint"]]
     feedback = None if any_hard else (sorted(set(hints)) or None)
     for f in findings:
-        for k in ("_verdict", "_hard", "_hint", "_fixable"):
+        for k in ("_verdict", "_hard", "_hint", "_fixable", "_origin",
+                  "_reason", "_predicates", "_steps", "_relations",
+                  "_params"):
             del f[k]
     print(f"Sentinel: {kind}" + (f" ({len(findings)} finding(s))"
                                        if findings else ""))

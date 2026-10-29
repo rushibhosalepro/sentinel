@@ -1,5 +1,5 @@
 .dash {
-  max-width: 700px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 1rem;
   font-family: system-ui, sans-serif;
@@ -8,6 +8,11 @@
 .dash h1 {
   font-size: 1.4rem;
   margin-bottom: 0.5rem;
+}
+
+.dash h2 {
+  font-size: 1.05rem;
+  margin: 0.8rem 0 0.4rem;
 }
 
 .row {
@@ -27,6 +32,22 @@
 .status {
   min-height: 1.5em;
   font-family: monospace;
+}
+
+.split {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.left {
+  flex: 1 1 640px;
+  min-width: 0;
+}
+
+.right {
+  flex: 1 1 480px;
+  min-width: 0;
 }
 
 .view {
@@ -57,4 +78,213 @@
   fill: #4da3ff;
   font-size: 13px;
   font-family: monospace;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.tabs button {
+  padding: 0.35rem 0.9rem;
+  border: 1px solid #ccc;
+  background: #f4f4f4;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: #e2e8f0;
+  font-weight: bold;
+}
+
+.graph {
+  width: 100%;
+  height: 420px;
+  border: 1px solid #ddd;
+  background: #fbfbfb;
+}
+
+.graph line {
+  stroke: #999;
+  stroke-width: 1.5px;
+}
+
+.graph line.has {
+  stroke: #bbb;
+  stroke-width: 1px;
+}
+
+.graph text {
+  font-size: 11px;
+  font-family: monospace;
+  fill: #333;
+  paint-order: stroke;
+  stroke: #fbfbfb;
+  stroke-width: 3px;
+}
+
+.graph text.has {
+  font-size: 9px;
+  fill: #777;
+}
+
+.graph .edge text {
+  opacity: 0;
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.graph .edge:hover text {
+  opacity: 1;
+}
+
+.graph circle {
+  stroke: none;
+}
+
+.graph rect.person {
+  fill: #212529;
+}
+
+.graph .pathline {
+  fill: none;
+  stroke: #868e96;
+  stroke-width: 2px;
+}
+
+.graph circle.fire {
+  fill: #d1242f;
+}
+
+.graph rect.gripper {
+  fill: #212529;
+}
+
+.graph text.grip-label {
+  font-size: 10px;
+  fill: #212529;
+}
+
+.graph line.hledge {
+  stroke: #d1242f;
+  stroke-width: 2.5px;
+}
+
+.graph text.hedge-label {
+  font-size: 11px;
+  font-weight: bold;
+  fill: #d1242f;
+  text-anchor: middle;
+}
+
+.graph circle.hotring {
+  fill: none;
+  stroke: #d1242f;
+  stroke-width: 2px;
+}
+
+.placeholder {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #e9ecef;
+  color: #777;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder.tall {
+  aspect-ratio: auto;
+  height: 420px;
+}
+
+.presets {
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.legend {
+  font-size: 0.85rem;
+}
+
+.card {
+  border: 1px solid #ddd;
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.5rem;
+  background: #fff;
+}
+
+.card p {
+  margin: 0.25rem 0;
+}
+
+.card .dim {
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.badge {
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: bold;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+}
+
+.hard, .soft, .origin {
+  font-size: 0.75rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  background: #eee;
+}
+
+.hard {
+  background: #cf222e;
+  color: #fff;
+}
+
+.why {
+  margin-top: 0.4rem;
+  border-top: 1px dashed #ccc;
+  padding-top: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.why .rule {
+  margin-bottom: 0.5rem;
+}
+
+.why .trace-line {
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.card button {
+  margin-top: 0.2rem;
+}
+
+.timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.timeline .round {
+  cursor: pointer;
+}
+
+.timeline .node {
+  display: inline-block;
+  color: #fff;
+  background: #6e7781;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  margin: 0 0.1rem;
+}
+
+.timeline .node.clear {
+  background: #1a7f37;
 }

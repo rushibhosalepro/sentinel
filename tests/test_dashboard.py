@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dashboard import events as E
-from dashboard.server import create_app
+from dashboard.server import AskRegistry, create_app
 
 
 def _sample_events():
@@ -45,6 +45,27 @@ def test_verdict_carries_why_path_and_feedback():
     assert ev["why_path"] == ["Round 1: BLOCK R1",
                               "feedback: keep the blade away"]
     assert ev["feedback"] == "feedback text"
+
+
+def test_proposal_feedback_ask_events_serialize():
+    why = [{"rule": "r1", "verdict": "ASK", "hard": False, "t": 0.5,
+            "origin": "seed", "reason": "why", "predicates": {"gap_cm": 1.0},
+            "steps": ["s1"], "relations": []}]
+    evs = [
+        E.proposal_event(2, "muse-spark-1.3", 12.34, 6),
+        E.feedback_event(2, "Attempt 2 was rejected (BLOCK)."),
+        E.ask_event("ask-1a2b", 2, "Allow the motion?",
+                    [{"rule": "r1", "detail": "d"}]),
+        E.verdict_event(2, "ASK", [{"rule": "r1"}], ["slow down"], why),
+        E.path_event(2, [[0.1, 0.2], [0.3, 0.4]], [[0.3, 0.4]]),
+    ]
+    assert [e["type"] for e in evs] == ["proposal", "feedback", "ask",
+                                        "verdict", "path"]
+    for ev in evs:
+        json.dumps(E.to_jsonable(ev))
+    assert evs[0]["latency_s"] == 12.3 and evs[0]["n_steps"] == 6
+    assert evs[2]["ask_id"] == "ask-1a2b"
+    assert evs[3]["why_path"][0]["origin"] == "seed"
 
 
 def test_why_path_for_extracts_round_block():
@@ -172,7 +193,114 @@ def test_late_socket_gets_latest_plan_and_graph():
             "plan", "graph", "done"]
     with TestClient(app) as client, client.websocket_connect("/ws") as ws2:
         assert [ws2.receive_json()["type"] for _ in range(2)] == [
-            "plan", "graph"]
+            "graph", "plan"]
+
+
+def _asker(instruction, sink, ask_handler, **kwargs):
+    ask_handler.pre_register("ask-1")
+    sink(E.ask_event("ask-1", 1, "Allow the motion?", []))
+    d = ask_handler.wait("ask-1", timeout=10)
+    sink(E.done_event("complete", {"decision": d}))
+
+
+@pytest.mark.parametrize("decision", ["approve", "deny"])
+def test_ask_decision_reaches_waiter(decision):
+    app = create_app(runner=_asker, owner_token="test-token")
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        assert ws.receive_json()["type"] == "ask"
+        r = client.post("/ask/ask-1",
+                        json={"decision": decision, "token": "test-token"})
+        assert r.status_code == 200
+        assert r.json() == {"ask_id": "ask-1", "decision": decision}
+        done = ws.receive_json()
+        assert done["detail"]["decision"] == decision
+
+
+def test_ask_wrong_token_is_403_then_recover():
+    app = create_app(runner=_asker, owner_token="test-token")
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        assert ws.receive_json()["type"] == "ask"
+        r = client.post("/ask/ask-1",
+                        json={"decision": "approve", "token": "wrong"})
+        assert r.status_code == 403
+        assert client.post(
+            "/ask/ask-1",
+            json={"decision": "deny", "token": "test-token"}).status_code == 200
+        assert ws.receive_json()["detail"]["decision"] == "deny"
+
+
+def test_ask_unknown_id_is_404_and_no_token_is_403():
+    app = create_app(runner=_asker, owner_token="test-token")
+    with TestClient(app) as client:
+        r = client.post("/ask/ask-nope",
+                        json={"decision": "deny", "token": "test-token"})
+        assert r.status_code == 404
+    app = create_app(runner=_asker, owner_token="")
+    with TestClient(app) as client:
+        r = client.post("/ask/ask-1",
+                        json={"decision": "approve", "token": "test-token"})
+        assert r.status_code == 403
+
+
+def _recv_two(app, timeout=10.0):
+    """Read 2 ws events in a thread so a failure can't hang the suite."""
+    out = []
+
+    def _run():
+        with TestClient(app) as client, \
+                client.websocket_connect("/ws") as ws:
+            out.append(ws.receive_json())
+            out.append(ws.receive_json())
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    th.join(timeout=timeout)
+    assert not th.is_alive(), "no frame+graph within 10 s"
+    return out
+
+
+def test_idle_socket_gets_frame_and_graph():
+    app = create_app(runner=_run_plan_done, idle_render=True)
+    first, second = _recv_two(app)
+    assert (first["type"], second["type"]) == ("frame", "graph")
+    assert first["run_id"] == 0 and second["run_id"] == 0
+    assert len(second["graph"]["objects"]) > 0
+
+
+def test_scene_preset_republishes_and_unknown_404s():
+    app = create_app(runner=_run_plan_done, idle_render=True)
+    with TestClient(app) as client:
+        assert client.get("/scene?preset=bogus").status_code == 404
+    first, second = _recv_two(app)  # startup pair (either order source)
+    assert {first["type"], second["type"]} == {"frame", "graph"}
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws") as ws:
+        # Drain the catch-up pair from latest, then switch presets.
+        assert ws.receive_json()["type"] == "frame"
+        assert ws.receive_json()["type"] == "graph"
+        r = client.get("/scene?preset=cup_next_to_laptop")
+        assert r.status_code == 200
+        assert r.json() == {"preset": "cup_next_to_laptop"}
+        assert ws.receive_json()["type"] == "frame"
+        graph = ws.receive_json()
+        assert graph["type"] == "graph"
+        cup = graph["graph"]["objects"]["cup"]["pos"]
+        assert abs(cup[0] - 0.35) < 0.01  # the F3 cup spot
+
+
+def test_ask_registry_timeout_and_double_decide():
+    reg = AskRegistry()
+    reg.pre_register("ask-1")
+    assert reg.wait("ask-1", timeout=0.05) is None  # timeout -> deny
+    reg.pre_register("ask-2")
+    assert reg.decide("ask-2", "approve") is True
+    assert reg.decide("ask-2", "deny") is False  # single-shot
+    assert reg.wait("ask-2", timeout=1.0) == "approve"
+    assert reg.wait("ask-missing", timeout=0.01) is None
 
 
 if __name__ == "__main__":

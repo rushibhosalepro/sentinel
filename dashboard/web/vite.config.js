@@ -8,6 +8,8 @@ export default defineConfig({
     proxy: {
       '/instruction': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/ask': 'http://localhost:8000',
+      '/scene': 'http://localhost:8000',
       '/ws': { target: 'ws://localhost:8000', ws: true },
     },
   },

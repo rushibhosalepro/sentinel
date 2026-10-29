@@ -7,6 +7,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import threading
 from pathlib import Path
 
 import mujoco
@@ -19,6 +20,12 @@ OUT_DIR = REPO_ROOT / "out"
 
 WIDTH, HEIGHT = 640, 480
 HOME_KEY = "home"
+
+# MuJoCo's GLFW backend crashes on concurrent context creation
+# (gladLoadGL / window-class race): hold this around every
+# mujoco.Renderer(...) construction and close (render calls on an
+# existing context stay outside: each context is single-threaded).
+RENDER_LOCK = threading.Lock()
 
 
 def load_scene(name: str = "day1") -> tuple[mujoco.MjModel, mujoco.MjData]:
@@ -46,7 +53,8 @@ def render(
     The seg channels are (object id, object type); background is (-1, -1).
     """
     try:
-        renderer = mujoco.Renderer(model, height=height, width=width)
+        with RENDER_LOCK:
+            renderer = mujoco.Renderer(model, height=height, width=width)
     except Exception as e:
         raise RuntimeError(
             f"Could not create a MuJoCo renderer ({e}). If this is a headless "
@@ -62,7 +70,8 @@ def render(
         renderer.update_scene(data, camera=camera)
         seg = renderer.render()
     finally:
-        renderer.close()
+        with RENDER_LOCK:
+            renderer.close()
     return {"rgb": rgb, "depth": depth, "seg": seg}
 
 

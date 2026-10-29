@@ -66,6 +66,34 @@ def test_allow_when_nothing_fires():
     assert v["why_path"] == [] and "stub" not in v
 
 
+def test_why_carries_structured_evidence():
+    grips = [[0.35, -0.18, 0.10, DOWN], [0.5, -0.18, 0.30, DOWN]]
+    m = _motion(grips, ["chef_knife", "chef_knife"], speed="slow")
+    v = check(m, _graph(hand=(1.3, -0.18, 0.25)), _rules())
+    (w,) = v["why_path"]
+    assert (w["rule"], w["verdict"], w["hard"]) == (
+        "sharp_toward_person", "BLOCK", True)
+    assert w["origin"] == "seed"
+    assert "blade" in w["reason"]
+    assert w["params"]["blade_toward_person"]["within_cm"] == 25.0
+    assert w["predicates"]["toward"] is True
+    p = w["predicates"]
+    assert p["tip_cm"] - p["margin_cm"] <= 25.0  # the firing condition
+    assert w["steps"] == ["s1"]  # firing sample's plan step
+    assert w["relations"] == [{"subj": "chef_knife", "rel": "POINTS_AT",
+                               "obj": "owner"}]
+
+
+def test_hard_findings_never_become_ask():
+    for rule in load_rulebook():
+        assert not (rule["verdict"] == "ASK" and rule["hard"]), rule["id"]
+    g = _graph(hand=(0.2, 0.0, 0.3))
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["jug"], speed="normal")
+    v = check(m, g, _rules())
+    assert v["kind"] == "ASK"
+    assert not any(w["hard"] for w in v["why_path"])
+
+
 def test_blade_toward_person_blocks_without_feedback():
     grips = [[0.35, -0.18, 0.10, DOWN], [0.5, -0.18, 0.30, DOWN]]
     m = _motion(grips, ["chef_knife", "chef_knife"], speed="slow")
@@ -78,9 +106,11 @@ def test_blade_toward_person_blocks_without_feedback():
     assert "pointing at them" in f["detail"]
     assert "owner's hand" in f["detail"]
     assert v["feedback"] is None  # hard BLOCK: no feedback
-    assert v["why_path"] == [{"rule": "sharp_toward_person",
-                              "verdict": "BLOCK", "hard": True,
-                              "t": 0.5}]
+    (w,) = v["why_path"]
+    assert {k: w[k] for k in ("rule", "verdict", "hard", "t")} == {
+        "rule": "sharp_toward_person", "verdict": "BLOCK", "hard": True,
+        "t": 0.5}
+    assert w["origin"] == "seed" and "blade" in w["reason"]
 
 
 def test_blade_away_allows():

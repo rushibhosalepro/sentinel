@@ -25,6 +25,7 @@ from collections import deque
 import random
 import threading
 import time
+import uuid
 
 import mujoco
 import numpy as np
@@ -33,7 +34,7 @@ from graph.scene_graph import load_props
 from loop.handover import build_execution_script, step_handover
 from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
                            format_error_note, format_replan_note,
-                           should_replan)
+                           has_hard_finding, should_replan)
 from loop.monitor import CLEAR_S, MONITOR_DT_S, check_halt, rule_params
 from planner.planner import plan_from_content, plan_instruction, scene_facts
 from sentinel.check import check
@@ -42,7 +43,7 @@ from sim.primitives import free_qposadr
 from sim.human import (HANDOVER_HOVER, park_pos, reach_to_counter,
                        step_f6)
 from sim.play import HAND_BODY, REACH_DURATION, drag_with_hand
-from sim.world import load_scene
+from sim.world import RENDER_LOCK, load_scene
 
 KEY_F1 = 290  # GLFW physical keys (no letters: safe while typing)
 KEY_F2 = 291
@@ -224,6 +225,69 @@ def _restore(model, data, home: dict, person: dict) -> None:
     mujoco.mj_forward(model, data)
 
 
+def _motion_path(motion: dict, findings: list,
+                 max_points: int = 200) -> dict:
+    """Top-down gripper path + the points near a finding's t (graph tab)."""
+    n = len(motion["path"])
+    stride = max(1, n // max(1, max_points))
+    idx = list(range(0, n, stride))
+    if idx and idx[-1] != n - 1:
+        idx.append(n - 1)
+    pts = [[float(motion["path"][i][0]), float(motion["path"][i][1])]
+           for i in idx]
+    fire_t = [f["t"] for f in findings]
+    fires = [p for i, p in zip(idx, pts)
+             if any(abs(motion["t"][i] - ft) <= 0.25 for ft in fire_t)]
+    return {"points": pts, "fires": fires}
+
+
+def _error_entry(attempt: int, model_name: str, t0: float, n_steps: int,
+                 err: str, latency: float | None = None) -> dict:
+    """rounds_log entry for a round that died before a verdict (D-04)."""
+    if latency is None:
+        latency = round(time.perf_counter() - t0, 1)
+    return {"round": attempt, "kind": "ERROR", "rules": [],
+            "findings": [], "feedback": None, "why": None,
+            "graph": None,
+            "proposal": {"model": model_name, "latency_s": latency,
+                         "n_steps": n_steps},
+            "feedback_note": None, "error": err}
+
+
+ASK_TIMEOUT_S = 60.0
+
+
+def ask_question(verdict: dict) -> str:
+    """The question a final ASK puts to the owner (D-05)."""
+    details = "; ".join(f["detail"] for f in verdict.get("findings", []))
+    if not details:
+        return "Allow the motion?"
+    return f"Allow the motion? ({details})"
+
+
+def decide_ask(verdict: dict, round_no: int, ask_handler, emit,
+               timeout: float = ASK_TIMEOUT_S) -> tuple[str, str]:
+    """Emit the ask event and wait for the owner. Returns (ask_id, decision).
+
+    decision is "approve" or "deny"; a timeout (or anything unrecognised)
+    is a deny. ask_handler is the dashboard's registry (pre_register/wait).
+    """
+    from dashboard.events import ask_event
+
+    ask_id = f"ask-{uuid.uuid4().hex[:8]}"
+    ask_handler.pre_register(ask_id)
+    emit(ask_event(ask_id, round_no, ask_question(verdict),
+                   verdict.get("findings", [])))
+    print(f"Sentinel: ASK {ask_id} (round {round_no}), waiting up to "
+          f"{timeout:.0f} s for the owner")
+    decision = ask_handler.wait(ask_id, timeout=timeout)
+    if decision != "approve":
+        if decision is None:
+            print(f"Sentinel: ASK {ask_id} timed out, denying")
+        decision = "deny"
+    return ask_id, decision
+
+
 def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
     """Background thread: perceive -> propose -> motion -> check -> replan.
 
@@ -260,7 +324,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             except Exception as e:  # noqa: BLE001 - reported, never raised
                 trace.append("quarantine: ERROR reader error")
                 results.put({"gen": job["gen"],
-                             "error": f"reader error: {e}", "trace": trace})
+                             "error": f"reader error: {e}", "trace": trace,
+                             "rounds_log": rounds_log})
                 continue
             for o in job["facts"]["objects"]:
                 o["has_text"] = o["id"] in job["quarantine"]
@@ -282,7 +347,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 trace.append("perception: ERROR")
                 results.put({"gen": job["gen"],
                              "error": f"perception error: {e}",
-                             "trace": trace})
+                             "trace": trace, "rounds_log": rounds_log})
                 continue
             objs = [o for o in job["facts"]["objects"]
                     if o["id"] in out["positions"]]
@@ -302,6 +367,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                   f"(min conf {min(conf_summary.values()):.2f})")
         while True:  # replan loop
             attempt = rounds + 1
+            model_name = job.get("model") or "spark"
+            t0 = time.perf_counter()
             try:
                 round_note, system = note, None
                 if attack_ctx:
@@ -314,21 +381,29 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                                            note=round_note,
                                            system_prompt=system)
             except Exception as e:  # noqa: BLE001 - reported, never raised
+                err = f"planner error: {e}"
                 trace.append(f"Round {attempt}: ERROR planner error")
-                results.put({"gen": job["gen"],
-                             "error": f"planner error: {e}", "trace": trace})
+                rounds_log.append(_error_entry(
+                    attempt, model_name, t0, 0, err))
+                results.put({"gen": job["gen"], "error": err,
+                             "trace": trace, "rounds_log": rounds_log})
                 break
+            latency = round(time.perf_counter() - t0, 1)
             steps, err = plan_from_content(content, job["valid_ids"],
                                            job["valid_people"])
             if err is not None:
                 err = f"invalid plan: {err}"
+                entry = _error_entry(attempt, model_name, t0, 0, err,
+                                     latency=latency)
+                rounds_log.append(entry)
                 if rounds >= MAX_REPLAN_ROUNDS:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
-                                 "trace": trace})
+                                 "trace": trace, "rounds_log": rounds_log})
                     break
                 rounds += 1
                 note = format_error_note(err, attempt)
+                entry["feedback_note"] = note
                 trace.append(f"Round {attempt}: ERROR {err}"[:80])
                 trace.append(f"feedback: {err}"[:80])
                 print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
@@ -338,13 +413,17 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 job["home_quat"], job["instruction"])
             if err is not None:
                 _print_plan(steps)
+                entry = _error_entry(attempt, model_name, t0, len(steps),
+                                     err, latency=latency)
+                rounds_log.append(entry)
                 if rounds >= MAX_REPLAN_ROUNDS:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
-                                 "trace": trace})
+                                 "trace": trace, "rounds_log": rounds_log})
                     break
                 rounds += 1
                 note = format_error_note(err, attempt)
+                entry["feedback_note"] = note
                 trace.append(f"Round {attempt}: ERROR {err}"[:80])
                 trace.append(f"feedback: {err}"[:80])
                 print(f"replan round {rounds}/{MAX_REPLAN_ROUNDS}: {err}")
@@ -364,19 +443,32 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             try:
                 verdict = check(script["motion"], graph)
             except Exception as e:  # noqa: BLE001 - reported, never raised
+                err = f"Sentinel error: {e}"
                 trace.append(f"Round {attempt}: ERROR Sentinel error")
-                results.put({"gen": job["gen"],
-                             "error": f"Sentinel error: {e}", "trace": trace})
+                entry = _error_entry(attempt, model_name, t0, len(steps),
+                                     err, latency=latency)
+                entry["graph"] = graph
+                rounds_log.append(entry)
+                results.put({"gen": job["gen"], "error": err,
+                             "trace": trace, "rounds_log": rounds_log})
                 break
             rules = ",".join(dict.fromkeys(
                 f["rule"] for f in verdict["findings"]))
             entry = f"Round {attempt}: {verdict['kind']}" \
                 + (f" {rules}" if rules else "")
-            rounds_log.append({"round": attempt, "kind": verdict["kind"],
-                               "rules": rules.split(",") if rules else [],
-                               "findings": verdict["findings"],
-                               "feedback": verdict["feedback"],
-                               "graph": graph})
+            log_entry = {"round": attempt, "kind": verdict["kind"],
+                         "rules": rules.split(",") if rules else [],
+                         "findings": verdict["findings"],
+                         "feedback": verdict["feedback"],
+                         "why": verdict.get("why_path"),
+                         "path": _motion_path(script["motion"],
+                                              verdict["findings"]),
+                         "graph": graph,
+                         "proposal": {"model": model_name,
+                                      "latency_s": latency,
+                                      "n_steps": len(steps)},
+                         "feedback_note": None, "error": None}
+            rounds_log.append(log_entry)
             if not should_replan(verdict, rounds):
                 trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
@@ -387,6 +479,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 break
             rounds += 1
             note = format_replan_note(verdict, attempt)
+            log_entry["feedback_note"] = note
             cons = "; ".join(constraints_for(verdict))
             trace.append(entry)
             trace.append(f"feedback: {cons}")
@@ -482,7 +575,8 @@ def _render_idle_clip(model, data, out_path: str, fps: int = 30,
 
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    with RENDER_LOCK:
+        renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
     try:
         with imageio.get_writer(out, fps=fps, codec="libx264",
                                 quality=8) as writer:
@@ -499,7 +593,8 @@ def _render_idle_clip(model, data, out_path: str, fps: int = 30,
                     sink(frame_event(encode_jpeg_b64(frame), [], "truth",
                                      i / fps))
     finally:
-        renderer.close()
+        with RENDER_LOCK:
+            renderer.close()
     print(f"saved {out} (static: Sentinel refused to move)")
 
 
@@ -509,7 +604,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   perception: str = "truth",
                   planner_model: str = "spark",
                   attack: str | None = None,
-                  sink=None) -> None:
+                  sink=None, ask_handler=None) -> None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -517,6 +612,9 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     replan). f6_at fires the F6 intrusion at that exec time (seconds).
     perception="sam" perceives each planned state with G-09 (the HALT
     replan re-perceives too); anything else uses sim ground truth.
+    ask_handler (the dashboard's ASK registry) lets a final soft ASK wait
+    for the owner's approve/deny instead of stopping; without one a final
+    ASK stops as before.
     """
     import imageio.v2 as imageio
     from pathlib import Path
@@ -570,48 +668,88 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     def take_result():
         from dashboard.events import (
             done_event,
+            feedback_event,
             graph_event,
+            path_event,
             plan_event,
+            proposal_event,
             verdict_event,
             why_path_for,
         )
         res = results.get()
+        trace = list(res.get("trace", []))
+
+        def emit_rounds():
+            for entry in res.get("rounds_log", []):
+                if entry.get("proposal") is not None:
+                    p = entry["proposal"]
+                    emit(proposal_event(entry["round"], p["model"],
+                                        p["latency_s"], p["n_steps"]))
+                if entry.get("graph") is not None:
+                    emit(graph_event(entry["graph"]))
+                if entry.get("path") is not None:
+                    emit(path_event(entry["round"],
+                                    entry["path"]["points"],
+                                    entry["path"]["fires"]))
+                if entry.get("kind") != "ERROR":
+                    emit(verdict_event(
+                        entry["round"], entry["kind"],
+                        entry["findings"], entry["feedback"],
+                        entry.get("why")
+                        or why_path_for(trace, entry["round"])))
+                if entry.get("feedback_note"):
+                    emit(feedback_event(entry["round"],
+                                        entry["feedback_note"]))
+
         if "error" in res:
-            if res.get("trace"):
-                print(" -> ".join(res["trace"]))
+            if trace:
+                print(" -> ".join(trace))
             print(f"{res['error']} (not moving)")
             jobs.put(None)
+            emit_rounds()
             emit(done_event("error", {"error": res["error"]}))
             raise SystemExit(1)
         steps, script = res["steps"], res["script"]
         verdict = res["verdict"]
         _print_plan(steps)
         print(_motion_summary(script["motion"]))
-        trace = list(res.get("trace", []))
         if trace:
             print(" -> ".join(trace))
         for f in verdict["findings"]:
             print(f"  ! {f['rule']}: {f['detail']}")
         emit(plan_event(steps, res["rounds"]))
-        for entry in res.get("rounds_log", []):
-            emit(graph_event(entry["graph"]))
-            emit(verdict_event(entry["round"], entry["kind"],
-                               entry["findings"], entry["feedback"],
-                               why_path_for(trace, entry["round"])))
+        emit_rounds()
+        ask = None
         if verdict["kind"] != "ALLOW":
-            print(f"Sentinel: {verdict['kind']} (not moving)")
+            if verdict["kind"] == "ASK" and ask_handler is not None \
+                    and not has_hard_finding(verdict):
+                log = res.get("rounds_log") or []
+                final_round = log[-1]["round"] if log \
+                    else res["rounds"] + 1
+                ask_id, decision = decide_ask(verdict, final_round,
+                                              ask_handler, emit)
+                ask = {"ask_id": ask_id, "decision": decision,
+                       "round": final_round}
+                if decision == "approve":
+                    print(f"Sentinel: ASK {ask_id} approved by owner, "
+                          f"executing")
+                    return steps, script, res["rounds"], trace, ask
+                print(f"Sentinel: ASK {ask_id} denied (not moving)")
+            else:
+                print(f"Sentinel: {verdict['kind']} (not moving)")
             jobs.put(None)
             _render_idle_clip(model, data, out_path, fps, sink=sink)
             emit(done_event(verdict["kind"],
-                            {"trace": trace[-4:]}))
+                            {"trace": trace[-4:], "ask": ask}))
             raise SystemExit(1)
-        return steps, script, res["rounds"], trace
+        return steps, script, res["rounds"], trace, ask
 
-    _, script, rounds, trace = take_result()
+    _, script, rounds, trace, ask = take_result()
     dt = 1.0 / fps
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
+    with RENDER_LOCK:
+        renderer = mujoco.Renderer(model, height=HEIGHT, width=WIDTH)
     person = {"active": False, "t0": 0.0, "target": HANDOVER_HOVER,
               "face": None, "origin": None, "carrying": None, "f6": None}
     takers: list[tuple[str, bool]] = []
@@ -763,7 +901,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "perceived": perceived,
                                           "model": planner_model,
                                           "quarantine": quarantine})
-                                _, script, rounds, trace = take_result()
+                                _, script, rounds, trace, ask = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
                                 halt, held_now = None, None
@@ -793,7 +931,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                 vnow += dt
                 data.time = vnow
     finally:
-        renderer.close()
+        with RENDER_LOCK:
+            renderer.close()
     jobs.put(None)
     hid = model.body(HAND_BODY).id
     took = {}
@@ -807,7 +946,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     if sink is not None:
         from dashboard.events import done_event
         emit(done_event("complete", {"takers": took, "rounds": rounds,
-                                     "duration_s": round(vnow, 2)}))
+                                     "duration_s": round(vnow, 2),
+                                     "ask": ask}))
 
 
 def main() -> None:

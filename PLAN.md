@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.15** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.18** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -235,9 +235,9 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 ### Phase 5: Dashboard (Nov 1)
 - [x] **D-01** FastAPI + WebSocket (`dashboard/server.py`): POST /instruction runs loop.live in a worker thread; /ws streams frame (JPEG ~10fps) + graph + plan + round verdicts with why_path + HALT/clear + done; shared schema `dashboard/events.py` (7 event/server tests; E2E "give me the knife" → ALLOW, 175 frames, knife taken)
 - [x] **D-02** React (Vite, `dashboard/web`): camera view with detection boxes, instruction box + submit, /ws connect (plain; graph + verdict cards in D-03; `npm run build` + dev-server 200 verified)
-- [ ] **D-03** Live graph view + verdict cards + **Why?** panel (rule + origin + path)
-- [ ] **D-04** Loop timeline: proposal → finding → feedback → replan → verdict
-- [ ] **D-05** ASK approval UI (owner only)
+- [x] **D-03** Split layout, right tabs: Graph (top-down x/y SVG, relations as labelled edges, hazard colours) + Verdicts (one card per round, **Why?** panel: rule text, hard/soft, origin seed/learned, predicate values, steps, relations on the path). Events carry structured why from sentinel.check (rule id, hard/soft, origin, predicates, step ids, relations); why_path_for kept as fallback only. New feedback + proposal events.
+- [x] **D-04** Timeline under the camera: proposal → finding → feedback → replan → verdict per round, HALT/clear marks, final status; click a round to open its **Why?** panel.
+- [x] **D-05** ASK approval (owner only): final ASK emits an ask event and waits (max 60 s); approve executes the last motion, deny/timeout stops. POST /ask/{ask_id} {decision, token}, token = OWNER_TOKEN from .env.local (page reads ?owner=); wrong token → 403. HARD findings never become ASK.
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -325,7 +325,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 6. **New work only.** No Steward code; commit early and often so the history shows hackathon work.
 7. **Freeze benchmark labels before running.** Keep the first run and the failures.
 8. **Every number in the README comes from a script in `bench/`.**
-9. **Retry policy:** retry ASK and SOFT-BLOCK verdicts with fixable feedback, plus invalid plans and build errors (error text as feedback). NEVER retry a verdict containing any HARD finding. Max 3 rounds.
+9. **Retry policy:** retry ASK and SOFT-BLOCK verdicts with fixable feedback, plus invalid plans and build errors (error text as feedback). NEVER retry a verdict containing any HARD finding. Max 3 replans (4 attempts), shared across ALL causes: verdict replans, invalid plans, build errors, and HALT replans all draw from the same budget — a 4-proposal timeline mixing BLOCK and ERROR rounds is correct behaviour, not a cap violation.
 10. **HALT policy (L-07):** a live HALT freezes the arm, waits for 1 s clear, then takes a FRESH plan from the frozen state (no feedback from the HALT itself — hard findings never teach). The replan consumes a round under the same 3-round cap. Expected handover contact (at/after offer) suppresses the monitor.
 
 ---
@@ -409,6 +409,9 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.13 | Oct 28 | Phase 4 leftovers: L-01 model client (spark-open), L-03 quarantined reader, L-04 naive baseline, lift3d z-extent fix |
 | v1.14 | Oct 28 | Phase 4 wrap (L-03 hardening: reader on sam, no-carrier-hit rule; L-02 audit) + Phase 5 start (D-01 server, D-02 web) |
 | v1.15 | Oct 29 | D-01 + D-02 done: dashboard server E2E green ("give me the knife" ALLOW, knife taken), React app builds and serves |
+| v1.16 | Oct 29 | D-03..D-05 spec: structured why from check, proposal/feedback/ask events, graph+verdict tabs, timeline, owner ASK approval (HARD never ASK) |
+| v1.17 | Oct 29 | D-03..D-05 done: structured why live (pour BLOCK→ALLOW verified), tabs+timeline+approval UI build, ASK approve/deny/timeout/403 pinned, 248 tests green |
+| v1.18 | Oct 29 | Graph fixes (repel, hover labels, why highlight + measured edge, gripper path polyline), idle scene + /scene presets + placeholders, §9.9 shared-cap note, RENDER_LOCK for concurrent GL contexts |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

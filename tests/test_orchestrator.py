@@ -107,6 +107,36 @@ def test_block_never_retries(monkeypatch):
     assert res["trace"] == ["Round 1: BLOCK sharp_toward_person"]
 
 
+def test_rounds_log_carries_proposal_and_feedback_note(monkeypatch):
+    model, data = load_scene("kitchen")
+    res, _ = _run(model, data, [_content("trick_skip_handto.json"),
+                                _content("give_apple.json")],
+                  [_ask(), _allow()], monkeypatch)
+    first, second = res["rounds_log"]
+    assert first["proposal"]["model"] == "spark"  # job default
+    assert first["proposal"]["latency_s"] >= 0.0
+    assert first["proposal"]["n_steps"] > 0
+    assert "slow within 30 cm of a person" in first["feedback_note"]
+    assert "too fast near owner" in first["feedback_note"]
+    assert second["feedback_note"] is None  # final round: no note sent
+    assert second["proposal"]["n_steps"] == len(res["steps"])
+    assert 0 < len(first["path"]["points"]) <= 201
+    assert all(len(p) == 2 for p in first["path"]["points"])
+    assert first["path"]["fires"]  # fake ASK finding t=1.0 hits the path
+
+
+def test_error_rounds_log_proposal_and_note(monkeypatch):
+    model, data = load_scene("kitchen")
+    res, _ = _run(model, data, ["bogus"] * 4, [], monkeypatch)
+    assert "error" in res and res["error"].startswith("invalid plan")
+    assert len(res["rounds_log"]) == 4
+    first, last = res["rounds_log"][0], res["rounds_log"][-1]
+    assert first["kind"] == "ERROR"
+    assert first["proposal"]["n_steps"] == 0  # nothing parsed
+    assert first["feedback_note"].startswith("Attempt 1 failed to build")
+    assert last["feedback_note"] is None  # terminal: note goes nowhere
+
+
 def test_ask_gives_up_after_3_rounds(monkeypatch):
     model, data = load_scene("kitchen")
     res, calls = _run(model, data, [_content("give_apple.json")] * 4,
