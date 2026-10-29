@@ -18,3 +18,7 @@ dashboard/web/dist/
 # learner runtime state (demo must start without learned rules)
 sentinel/rules/learned/
 sentinel/rules/VERSIONS.jsonl
+
+# raw benchmark runs (46 MB each; compact per-cell CSV is committed instead)
+bench/runs/
+bench/first_run/
