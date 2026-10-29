@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.23** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.25** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -239,6 +239,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-04** Timeline under the camera: proposal → finding → feedback → replan → verdict per round, HALT/clear marks, final status; click a round to open its **Why?** panel.
 - [x] **D-05** ASK approval (owner only): final ASK emits an ask event and waits (max 60 s); approve executes the last motion, deny/timeout stops. POST /ask/{ask_id} {decision, token}, token = OWNER_TOKEN from .env.local (page reads ?owner=); wrong token → 403. HARD findings never become ASK.
 - [x] **D-06** Graph tab shows Sentinel's real relations: delete the invented App.jsx edge thresholds; the graph event carries `edges` (ON/NEAR/dist_cm/ABOVE/INSIDE/HAS) + `extra_nodes` (counter) serialized from `graph/scene_graph.py` builders at both emission sites (run rounds + idle/preset). Web draws exactly those: ON/ABOVE/INSIDE always, NEAR only hazard-involved (dist_cm on hover), HAS as hover sub-labels; verdict why_path measured relations overlay thick red (BLOCK/HALT) / amber (ASK) with values + gripper path, auto-showing the last verdict; one owner group (hand+torso joined) captioned "tracked for hand-over + HALT rules"; caption "lines = scene relations · red = what the last verdict measured". Test: event edges == builder edges on the default scene (incl. apple ON plate). Sam mode still emits sim-state relations (perceived-relation builders are future work).
+- [x] **D-07** Split view (judge page `/`, dashboard moves to `/debug`): instruction box + preset buttons (Knife hand-over, Water near laptop, Sticky note, Free text) + "Run both"; two lanes same scene+instruction in parallel (fully separate sim instances): [A] WITHOUT SENTINEL via `bench/naive.py` executor, red badge, one-line red outcome footer; [B] WITH SENTINEL via loop.live, green badge, verdict-chain footer; lane-tagged events on `/ws-split`; B's timeline + Why? reused below; results strip from `bench/results.csv` via GET /bench-strip ("naive 62% → Sentinel 23%, 128 scenarios"); `out/split_knife.mp4`, `out/split_water.mp4`, `out/split_sticky.mp4` composed server-side (both lane cameras + footers).
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -260,7 +261,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** the headline table is filled with real numbers.
 
 ### Phase 8: Deploy, docs, video, submit (Nov 3–4)
-- [ ] **F-01** Deploy on Modal (headless MuJoCo), public URL, rate limits, daily budget
+- [ ] **F-01** Deploy on Modal: `deploy/modal_app.py` (MUJOCO_GL=egl headless, FastAPI + built web from one endpoint, secrets META_API_KEY→MODEL_API_KEY/BASETEN_API_KEY/OWNER_TOKEN, public URL). Guardrails in server: one run at a time (FIFO queue, position shown — replaces 409), 10 runs/IP/hour (429), daily $ budget from costs.jsonl (polite stop), presets-only by default (free text behind ?owner= token; public_mode also gates /debug posting), /health carries queue + budget. README "Try it" link.
 - [ ] **F-02** README: problem → demo → how it works → results → limits → licences → what was built during the hackathon
 - [ ] **F-03** 3-minute demo video (script in §8), uploaded and public
 - [ ] **F-04** X post with the sticky-note / knife clip; link submitted for Most Viral
@@ -418,6 +419,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.21 | Oct 29 | Camera cleanup: overlays deleted, "On the table" panel (hazard chips, also-line, hand-gripper distance; graph snapshot gains gripper), why-driven chip highlight, guaranteed non-overlapping graph labels |
 | v1.22 | Oct 29 | Phase 7 spec: B-01 seeds+variants+labels.lock, B-02 9 conditions (4 core), B-03 seen/unseen, B-04 cache+resume+contributor bulk, B-05 RESULTS.md; demo learned rule rolled back (seed rulebook for benchmark) |
 | v1.23 | Oct 29 | D-06 done: graph event carries real scene_graph edges (ON/NEAR/ABOVE/INSIDE/HAS) + counter node; web draws exactly those, hazard-only NEAR, verdict overlay red/amber + captions, owner group; 311 tests green |
+| v1.24 | Oct 29 | Phase 8a spec: D-07 split view (/ vs /debug, naive vs Sentinel lanes, /ws-split, results strip, split mp4s), F-01 Modal + guardrails (queue, rate limit, budget, presets-only, health) |
+| v1.25 | Oct 29 | Phase 8a built: D-07 done (split lanes live, 3 mp4s + 3 page screenshots, strip live); F-01 code done (modal_app.py syntax-checked, guardrails pinned, README Try-it) — first deploy + public URL pending (Modal CLI present but unauthenticated; needs `modal token new`); 325 tests green |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

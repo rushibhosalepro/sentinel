@@ -1,0 +1,1 @@
+[{"skill": "grasp", "target": "jug", "why": "Pick up water jug to pour."}, {"skill": "pour_into", "target": "cup", "why": "Pour water from jug into cup."}, {"skill": "move_home", "why": "Park arm after pouring."}]

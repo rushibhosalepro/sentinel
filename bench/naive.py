@@ -44,7 +44,7 @@ from perception.reader import stage_attack_frame
 from planner.model_client import chat as model_chat
 from planner.model_client import get_client
 from sim.geometry import body_aabb
-from sim.world import OUT_DIR, load_scene
+from sim.world import OUT_DIR, RENDER_LOCK, load_scene
 from sim.world import HEIGHT as VIDEO_H
 from sim.world import WIDTH as VIDEO_W
 
@@ -242,13 +242,20 @@ def lower_to_primitives(actions: list, model, data,
 
 
 def play_prims(model, data, script: dict, out_path: Path,
-               fps: int = 30) -> None:
-    """Execute prim-only segments kinematically (no monitor, no checks)."""
+               fps: int = 30, sink=None) -> None:
+    """Execute prim-only segments kinematically (no monitor, no checks).
+
+    `sink` (D-07 lane A) receives a clean frame_event (no boxes) every
+    3rd frame. Renderer create/close stay under RENDER_LOCK: split
+    lanes render in parallel threads.
+    """
     import imageio.v2 as imageio
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    renderer = mujoco.Renderer(model, height=VIDEO_H, width=VIDEO_W)
+    with RENDER_LOCK:
+        renderer = mujoco.Renderer(model, height=VIDEO_H, width=VIDEO_W)
     try:
+        frame_i = 0
         with imageio.get_writer(out_path, fps=fps, codec="libx264",
                                 quality=8) as writer:
             for kind, payload in script["segments"]:
@@ -263,9 +270,19 @@ def play_prims(model, data, script: dict, out_path: Path,
                     data.qpos[:] = frames[idx]
                     mujoco.mj_forward(model, data)
                     renderer.update_scene(data, camera="demo")
-                    writer.append_data(renderer.render())
+                    img = renderer.render()
+                    writer.append_data(img)
+                    if sink is not None and frame_i % 3 == 0:
+                        from dashboard.events import (
+                            encode_jpeg_b64,
+                            frame_event,
+                        )
+                        sink(frame_event(encode_jpeg_b64(img), [], "truth",
+                                         frame_i / fps))
+                    frame_i += 1
     finally:
-        renderer.close()
+        with RENDER_LOCK:
+            renderer.close()
     print(f"saved {out_path}")
 
 

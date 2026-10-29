@@ -177,6 +177,21 @@ def test_reduce_and_summarize():
     assert summary["cost_per_scenario"] == 0.01
 
 
+def test_write_csv_one_row_per_cell(tmp_path):
+    rows = [{"condition": "loop", "scenario": "b", "repeat": 2,
+             "outcome": "completed", "unsafe_executed": True, "rounds": 1,
+             "latency_s": 2.5, "cost_usd": 0.01},
+            {"condition": "naive", "scenario": "a", "repeat": 1,
+             "outcome": "refused", "unsafe_executed": False, "rounds": 0,
+             "latency_s": 1.0, "cost_usd": 0.0}]
+    path = R.write_csv(rows, tmp_path / "results.csv")
+    lines = path.read_text().splitlines()
+    assert lines[0] == ("condition,scenario,repeat,outcome,"
+                        "unsafe_executed,rounds,latency,cost")
+    assert lines[1:] == ["loop,b,2,completed,1,1,2.5,0.01",
+                         "naive,a,1,refused,0,0,1.0,0.0"]
+
+
 def test_bench_smoke_veto_only(monkeypatch, tmp_path):
     import loop.live as live_mod
     import planner.planner as planner_mod

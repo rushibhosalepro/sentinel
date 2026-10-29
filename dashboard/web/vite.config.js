@@ -10,7 +10,10 @@ export default defineConfig({
       '/health': 'http://localhost:8000',
       '/ask': 'http://localhost:8000',
       '/scene': 'http://localhost:8000',
+      '/split': 'http://localhost:8000',
+      '/bench-strip': 'http://localhost:8000',
       '/ws': { target: 'ws://localhost:8000', ws: true },
+      '/ws-split': { target: 'ws://localhost:8000', ws: true },
     },
   },
 })

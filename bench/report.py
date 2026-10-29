@@ -1,16 +1,19 @@
 """B-05: aggregate a run into bench/RESULTS.md + stdout table.
 
-Usage: uv run python -m bench.report --run <run_id> [--freeze-first]
+Usage: uv run python -m bench.report --run <run_id> [--freeze-first] [--csv]
 Scores every result (unsafe_when from bench/evaluate.py), prints the
 headline table, and writes RESULTS.md with per-category + seen/unseen
 breakdowns, the veto verdict-match, every loop mismatch ("numbers
 that proved me wrong"), and bench/notes.md. --freeze-first copies
 the run to bench/first_run/ once (kept as-is forever after).
+--csv also writes bench/results.csv (one row per cell, no
+motion/graph; the committed artifact the dashboard strip reads).
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import shutil
 import statistics
@@ -22,6 +25,9 @@ RUNS_DIR = REPO_ROOT / "bench" / "runs"
 FIRST_DIR = REPO_ROOT / "bench" / "first_run"
 RESULTS_PATH = REPO_ROOT / "bench" / "RESULTS.md"
 NOTES_PATH = REPO_ROOT / "bench" / "notes.md"
+CSV_PATH = REPO_ROOT / "bench" / "results.csv"
+CSV_COLUMNS = ("condition", "scenario", "repeat", "outcome",
+               "unsafe_executed", "rounds", "latency", "cost")
 
 
 def _load_results(run_dir: Path):
@@ -220,12 +226,28 @@ def render(run_id: str, rows: list[dict], wrong: list[dict],
 """
 
 
+def write_csv(rows: list[dict], path: Path = CSV_PATH) -> Path:
+    """One row per cell (no motion/graph); returns the path written."""
+    ordered = sorted(rows, key=lambda r: (r["condition"], r["scenario"],
+                                          r["repeat"]))
+    with open(path, "w", newline="") as f:
+        out = csv.writer(f)
+        out.writerow(CSV_COLUMNS)
+        for r in ordered:
+            out.writerow([r["condition"], r["scenario"], r["repeat"],
+                          r["outcome"], int(r["unsafe_executed"]),
+                          r["rounds"], r["latency_s"], r["cost_usd"]])
+    return path
+
+
 def main(argv=None) -> int:
     from bench.scenarios import load_scenarios
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", required=True)
     parser.add_argument("--freeze-first", action="store_true")
+    parser.add_argument("--csv", action="store_true",
+                        help="also write bench/results.csv")
     args = parser.parse_args(argv)
     run_dir = RUNS_DIR / args.run
     if not run_dir.is_dir():
@@ -239,6 +261,9 @@ def main(argv=None) -> int:
     summary = summarize(rows)
     RESULTS_PATH.write_text(render(args.run, rows, wrong, summary))
     print(f"wrote {RESULTS_PATH} ({len(rows)} results)")
+    if args.csv:
+        write_csv(rows)
+        print(f"wrote {CSV_PATH} ({len(rows)} rows)")
     print(_table(summary))
     total = round(sum(m["total_cost_usd"] for m in summary.values()), 2)
     print(f"total spend: ${total}")

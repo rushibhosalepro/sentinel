@@ -171,26 +171,159 @@ def test_post_streams_plan_then_done_over_ws():
         assert second["detail"]["instruction"] == "wave"
 
 
-def test_second_post_while_busy_is_409_then_recovers():
+def test_second_post_queues_with_position_then_runs():
     gate = threading.Event()
+    seen = []
 
     def _slow(instruction, sink, **kwargs):
+        seen.append(instruction)
         gate.wait(timeout=10)
         sink(E.done_event("complete", {}))
 
     app = create_app(runner=_slow)
     with TestClient(app) as client:
-        assert client.post("/instruction",
-                           json={"instruction": "one"}).status_code == 202
-        assert client.post("/instruction",
-                           json={"instruction": "two"}).status_code == 409
+        first = client.post("/instruction", json={"instruction": "one"})
+        assert first.json()["status"] == "started"
+        second = client.post("/instruction", json={"instruction": "two"})
+        assert second.status_code == 202
+        assert second.json()["status"] == "queued"
+        assert second.json()["position"] == 1
+        assert client.get("/health").json()["queued"] == 1
         gate.set()
         for _ in range(200):
-            r = client.post("/instruction", json={"instruction": "three"})
-            if r.status_code == 202:
+            if seen == ["one", "two"]:
                 break
             time.sleep(0.05)
+        assert seen == ["one", "two"]
+
+
+def _stub_naive(instruction, *, preset, attack, out_path, tag, sink,
+                fps=30):
+    sink(E.frame_event("AAA", [{"id": "x"}], "truth", 0.0))
+    sink(E.done_event("complete", {"outcome": "stub naive did X"}))
+
+
+def _stub_live(instruction, out_path, *, preset, attack, perception,
+               planner_model, sink):
+    sink(E.verdict_event(1, "BLOCK", [], None, []))
+    sink(E.done_event("BLOCK", {}))
+
+
+def test_split_runs_both_lanes_with_lane_tags():
+    app = create_app(runner=_run_plan_done, split_naive=_stub_naive,
+                     split_live=_stub_live)
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws-split") as ws:
+        r = client.post("/split", json={"preset": "knife"})
         assert r.status_code == 202
+        assert r.json()["preset"] == "knife"
+        got = []
+        for _ in range(8):
+            ev = ws.receive_json()
+            got.append(ev)
+            if sum(1 for e in got if e["type"] == "done") == 2:
+                break
+        by_lane = {}
+        for e in got:
+            by_lane.setdefault(e["lane"], []).append(e["type"])
+        assert sorted(by_lane["A"]) == ["done", "frame"]
+        assert sorted(by_lane["B"]) == ["done", "verdict"]
+        frame = next(e for e in got if e["type"] == "frame")
+        assert frame["boxes"] == []  # clean lane cameras
+        done_a = next(e for e in got if e["lane"] == "A"
+                      and e["type"] == "done")
+        assert done_a["detail"]["outcome"] == "stub naive did X"
+        assert {e["run_id"] for e in got} == {r.json()["run_id"]}
+
+
+def test_split_validation_and_free_text_token():
+    app = create_app(runner=_run_plan_done, split_naive=_stub_naive,
+                     split_live=_stub_live, owner_token="test-token")
+    with TestClient(app) as client:
+        assert client.post("/split", json={"preset": "nope"}
+                           ).status_code == 400
+        both = client.post("/split", json={"preset": "knife",
+                                           "instruction": "x"})
+        assert both.status_code == 400
+        assert client.post("/split", json={}).status_code == 400
+        free = client.post("/split", json={"instruction": "wave"})
+        assert free.status_code == 403
+        owned = client.post("/split", json={"instruction": "wave",
+                                            "token": "test-token"})
+        assert owned.status_code == 202
+        assert owned.json()["preset"] == "free"
+
+
+def test_public_mode_gates_debug_posting():
+    app = create_app(runner=_run_plan_done, public_mode=True,
+                     owner_token="test-token")
+    with TestClient(app) as client:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 403
+        ok = client.post("/instruction", json={"instruction": "x",
+                                               "token": "test-token"})
+        assert ok.status_code == 202
+    open_app = create_app(runner=_run_plan_done)
+    with TestClient(open_app) as client:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+
+
+def test_rate_limit_429s_when_over_limit():
+    app = create_app(runner=_run_plan_done, rate_limit_per_hour=2)
+    with TestClient(app) as client:
+        assert client.post("/instruction",
+                           json={"instruction": "a"}).status_code == 202
+        assert client.post("/instruction",
+                           json={"instruction": "b"}).status_code == 202
+        third = client.post("/instruction", json={"instruction": "c"})
+        assert third.status_code == 429
+
+
+def test_daily_budget_stops_with_polite_message(tmp_path):
+    import datetime
+
+    costs = tmp_path / "costs.jsonl"
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    costs.write_text(json.dumps({"ts": f"{today}T00:00:01+00:00",
+                                 "cost_usd": 9.99}) + "\n")
+    broke = create_app(runner=_run_plan_done, daily_budget_usd=5.0,
+                       costs_path=costs)
+    with TestClient(broke) as client:
+        r = client.post("/instruction", json={"instruction": "x"})
+        assert r.status_code == 503
+        assert "tomorrow" in r.json()["error"]
+    rich = create_app(runner=_run_plan_done, daily_budget_usd=50.0,
+                      costs_path=costs)
+    with TestClient(rich) as client:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+
+
+def test_bench_strip_from_results_csv(tmp_path):
+    app = create_app(runner=_run_plan_done)
+    with TestClient(app) as client:
+        strip = client.get("/bench-strip").json()
+        assert strip["naive_unsafe_pct"] == 62.0
+        assert strip["sentinel_unsafe_pct"] == 23.4
+        assert strip["n_scenarios"] == 128
+    missing = create_app(runner=_run_plan_done,
+                         bench_csv=tmp_path / "nope.csv")
+    with TestClient(missing) as client:
+        assert client.get("/bench-strip").status_code == 503
+
+
+def test_web_dir_serves_index_for_root_and_debug(tmp_path):
+    web = tmp_path / "web"
+    (web / "assets").mkdir(parents=True)
+    (web / "index.html").write_text("<p>split</p>")
+    (web / "assets" / "a.txt").write_text("x")
+    app = create_app(runner=_run_plan_done, web_dir=web)
+    with TestClient(app) as client:
+        assert client.get("/").status_code == 200
+        assert client.get("/debug").status_code == 200
+        assert client.get("/assets/a.txt").text == "x"
+        assert client.get("/health").json()["status"] == "ok"
 
 
 def test_runner_crash_streams_done_error():

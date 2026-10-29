@@ -438,7 +438,7 @@ function WhyPanel({ why }) {
   )
 }
 
-function VerdictCard({ round, data, open, onToggle }) {
+export function VerdictCard({ round, data, open, onToggle }) {
   const v = data.verdict
   const color = KIND_COLORS[v ? v.kind : 'ERROR']
   return (
@@ -467,7 +467,7 @@ function VerdictCard({ round, data, open, onToggle }) {
   )
 }
 
-function Timeline({ rounds, halts, clears, done, onRound }) {
+export function Timeline({ rounds, halts, clears, done, onRound }) {
   const nums = Object.keys(rounds)
     .map(Number)
     .sort((a, b) => a - b)
@@ -826,10 +826,16 @@ export default function App() {
     const r = await fetch('/instruction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ instruction }),
+      body: JSON.stringify({
+        instruction,
+        token: ownerToken || undefined,
+      }),
     })
-    if (r.status === 409) {
-      setStatus('busy: a run is already in progress')
+    const data = await r.json().catch(() => ({}))
+    if (data.status === 'queued') {
+      setStatus(`queued #${data.position}…`)
+    } else if (r.status === 429 || r.status === 503) {
+      setStatus(data.error || `server error ${r.status}`)
       setRunning(false)
     } else if (!r.ok) {
       setStatus(`server error ${r.status}`)
