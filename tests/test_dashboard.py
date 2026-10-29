@@ -458,5 +458,125 @@ def test_ask_registry_timeout_and_double_decide():
     assert reg.wait("ask-missing", timeout=0.01) is None
 
 
+def _incident_run(instruction, sink, **kwargs):
+    sink(E.graph_event({"objects": {"wine_glass": {
+        "properties": ["fragile"], "owner": "owner", "conf": 1.0}},
+        "people": {}}))
+    sink(E.verdict_event(1, "ALLOW", [], None, [],
+                         live_run_id="run-live-1"))
+    sink(E.done_event("complete", {"motion": "Motion: 10 samples"}))
+
+
+def test_incident_files_on_last_run(tmp_path):
+    app = create_app(runner=_incident_run)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.post("/instruction",
+                           json={"instruction": "move plate"}
+                           ).status_code == 202
+        assert [ws.receive_json()["type"] for _ in range(3)] == [
+            "graph", "verdict", "done"]
+        r = client.post("/incident",
+                        json={"text": "nearly knocked it off"})
+        assert r.status_code == 200
+        assert r.json()["incident_n"] == 1
+    with open(tmp_path / "events.jsonl") as f:
+        log = [json.loads(line) for line in f]
+    (inc,) = [e for e in log if e["kind"] == "incident"]
+    assert inc["id"] == "inc-001"
+    assert inc["run_id"] == "run-live-1"  # joins worker verdicts
+    assert inc["closest"] is None  # fake runner logged no verdicts
+    assert inc["outcome"] == "complete"
+    assert inc["motion"] == "Motion: 10 samples"
+    assert inc["graph"]["objects"]["wine_glass"]["properties"] == ["fragile"]
+
+
+def test_incident_without_run_is_404():
+    app = create_app(runner=_run_plan_done)
+    with TestClient(app) as client:
+        assert client.post("/incident",
+                           json={"text": "x"}).status_code == 404
+
+
+def test_rules_versions_and_gate_report(monkeypatch, tmp_path):
+    from learner import versions as V
+
+    monkeypatch.setattr(V, "LEARNED_DIR", tmp_path / "learned")
+    monkeypatch.setattr(V, "JOURNAL", tmp_path / "VERSIONS.jsonl")
+    app = create_app(runner=_run_plan_done)
+    with TestClient(app) as client:
+        assert client.get("/rules/versions").json() == {"journal": [],
+                                                        "active": []}
+        assert client.get("/rules/gate-report").status_code == 404
+        V.add_rule({"id": "r1", "when": {"speed": "normal"}}, "inc-001",
+                   {"accepted": True})
+        got = client.get("/rules/versions").json()
+        assert [a["rule_id"] for a in got["active"]] == ["r1"]
+        assert got["journal"][0]["incident"] == "inc-001"
+        g = client.get("/rules/gate-report").json()
+        assert g["version"] == 1 and g["gate"] == {"accepted": True}
+        assert g["rule"]["id"] == "r1"
+        assert client.get("/rules/gate-report?version=9").status_code == 404
+
+
+def test_rollback_needs_token_and_reverts(monkeypatch, tmp_path):
+    from learner import versions as V
+
+    monkeypatch.setattr(V, "LEARNED_DIR", tmp_path / "learned")
+    monkeypatch.setattr(V, "JOURNAL", tmp_path / "VERSIONS.jsonl")
+    V.add_rule({"id": "r1", "when": {"speed": "normal"}}, "inc-001",
+               {"accepted": True})
+    app = create_app(runner=_run_plan_done, owner_token="test-token")
+    with TestClient(app) as client:
+        r = client.post("/rules/rollback",
+                        json={"version": "1", "token": "wrong"})
+        assert r.status_code == 403
+        r = client.post("/rules/rollback",
+                        json={"version": "9", "token": "test-token"})
+        assert r.status_code == 404
+        r = client.post("/rules/rollback",
+                        json={"version": "1", "token": "test-token"})
+        assert r.status_code == 200
+        assert r.json()["rule_id"] == "r1"
+        assert client.get("/rules/versions").json()["active"] == []
+        assert not (tmp_path / "learned" / "r1.json").exists()
+
+
+def test_verdict_live_run_id_published_to_ws():
+    seen = []
+
+    def _run(instruction, sink, **kwargs):
+        sink(E.verdict_event(1, "ALLOW", [], None, [],
+                             live_run_id="run-x"))
+
+    app = create_app(runner=_run)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        seen.append(ws.receive_json())
+    assert seen[0]["live_run_id"] == "run-x"
+    assert seen[0]["run_id"] == 1  # envelope keeps the server id
+
+
+def test_learned_why_gets_incident_ref(tmp_path):
+    from learner.events import append_event
+
+    inc = append_event({"kind": "incident", "run_id": "run-x",
+                        "instruction": "x", "text": "t"})
+    why = [{"rule": "r1", "verdict": "ASK", "hard": False, "t": 0.5,
+            "origin": "learned", "reason": "r", "predicates": {},
+            "steps": [], "relations": [],
+            "learned_from": [inc["id"], "ev-nope"]}]
+
+    def _run(instruction, sink, **kwargs):
+        sink(E.verdict_event(1, "ASK", [], None, why))
+
+    app = create_app(runner=_run)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        (w,) = ws.receive_json()["why_path"]
+    assert w["incident_ref"] == {"n": 1, "ts": inc["ts"]}
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

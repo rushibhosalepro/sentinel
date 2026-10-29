@@ -10,7 +10,7 @@ const ABOVE_XY = 0.12
 const GW = 460
 const GH = 420
 const GPAD = 34
-const MIN_SEP_PX = 28
+const MIN_SEP_PX = 36
 
 const KIND_COLORS = {
   ALLOW: '#1a7f37',
@@ -20,13 +20,31 @@ const KIND_COLORS = {
   ERROR: '#6e7781',
 }
 
+const FRAGILE_COLOR = '#9c36b5'
+
 function hazardColor(props) {
   if (props.includes('sharp')) return '#d1242f'
   if (props.includes('hot')) return '#e8590c'
   if (props.includes('medication')) return '#e67700'
   if (props.includes('liquid')) return '#1971c2'
   if (props.includes('electronic')) return '#495057'
+  if (props.includes('fragile')) return FRAGILE_COLOR
   return '#adb5bd'
+}
+
+const HAZARD_TAGS = {
+  sharp: 'SHARP',
+  fragile: 'FRAGILE',
+  liquid: 'LIQUID',
+  electronic: 'ELECTRONIC',
+  medication: 'MEDICATION',
+}
+
+function hazardTag(props) {
+  for (const p of props || []) {
+    if (HAZARD_TAGS[p]) return HAZARD_TAGS[p]
+  }
+  return null
 }
 
 function dist3(a, b) {
@@ -61,27 +79,9 @@ function measuredLabel(w, people) {
   return v !== undefined ? `${where}${k}=${JSON.stringify(v)}` : w.rule
 }
 
-function GraphTab({ graph, why, path }) {
-  if (!graph) {
-    return (
-      <div className="placeholder tall">
-        <p>loading scene...</p>
-      </div>
-    )
-  }
-  const nodes = []
-  for (const [id, o] of Object.entries(graph.objects || {})) {
-    nodes.push({ id, pos: o.pos, props: o.properties || [], person: false })
-  }
-  const people = Object.keys(graph.people || {})
-  for (const pid of people) {
-    const p = graph.people[pid]
-    nodes.push({ id: `${pid} hand`, pos: p.hand, props: [], person: true })
-    nodes.push({ id: `${pid} torso`, pos: p.torso, props: [], person: true })
-  }
-  const pts = path && path.points ? path.points : []
-  const xs = [...nodes.map((n) => n.pos[0]), ...pts.map((p) => p[0])]
-  const ys = [...nodes.map((n) => n.pos[1]), ...pts.map((p) => p[1])]
+function layoutGraph(nodes, extraPts = []) {
+  const xs = [...nodes.map((n) => n.pos[0]), ...extraPts.map((p) => p[0])]
+  const ys = [...nodes.map((n) => n.pos[1]), ...extraPts.map((p) => p[1])]
   const x0 = Math.min(...xs)
   const x1 = Math.max(...xs)
   const y0 = Math.min(...ys)
@@ -113,6 +113,75 @@ function GraphTab({ graph, why, path }) {
       }
     }
   }
+  const labelW = (id) => id.length * 6.6 + 4
+  const box = (n, side, dy) => {
+    const w = labelW(n.id)
+    const y0b = n.py + dy - 8
+    const y1b = n.py + dy + 8
+    return side === 1
+      ? { x0: n.px + 8, y0: y0b, x1: n.px + 8 + w, y1: y1b }
+      : { x0: n.px - 8 - w, y0: y0b, x1: n.px - 8, y1: y1b }
+  }
+  const hit = (a, b, pad = 2) =>
+    a.x0 < b.x1 + pad && b.x0 < a.x1 + pad &&
+    a.y0 < b.y1 + pad && b.y0 < a.y1 + pad
+  // Greedy slots: roomiest side first, then vertical offsets. Bounded
+  // search, so every label lands on a free box.
+  const placed = []
+  const order = [...laid].sort((a, b) => a.py - b.py)
+  for (const n of order) {
+    const w = labelW(n.id)
+    const roomR = GW - 2 - (n.px + 8) - w
+    const roomL = n.px - 8 - w - 2
+    const sides = roomR >= roomL ? [1, -1] : [-1, 1]
+    let done = false
+    for (let m = 0; m < 20 && !done; m++) {
+      for (const dy of m === 0 ? [0] : [-18 * m, 18 * m]) {
+        for (const side of sides) {
+          const b = box(n, side, dy)
+          if (b.x0 < 2 || b.x1 > GW - 2) continue
+          if (placed.every((p) => !hit(b, p))) {
+            n.side = side
+            n.dy = dy
+            n.label = b
+            placed.push(b)
+            done = true
+            break
+          }
+        }
+        if (done) break
+      }
+    }
+    if (!done) {
+      n.side = 1
+      n.dy = 0
+      n.label = box(n, 1, 0)
+      placed.push(n.label)
+    }
+  }
+  return { laid, X, Y }
+}
+
+function GraphTab({ graph, why, path }) {
+  if (!graph) {
+    return (
+      <div className="placeholder tall">
+        <p>loading scene...</p>
+      </div>
+    )
+  }
+  const nodes = []
+  for (const [id, o] of Object.entries(graph.objects || {})) {
+    nodes.push({ id, pos: o.pos, props: o.properties || [], person: false })
+  }
+  const people = Object.keys(graph.people || {})
+  for (const pid of people) {
+    const p = graph.people[pid]
+    nodes.push({ id: `${pid} hand`, pos: p.hand, props: [], person: true })
+    nodes.push({ id: `${pid} torso`, pos: p.torso, props: [], person: true })
+  }
+  const pts = path && path.points ? path.points : []
+  const { laid, X, Y } = layoutGraph(nodes, pts)
   const byId = Object.fromEntries(laid.map((n) => [n.id, n]))
   const edges = []
   for (let i = 0; i < nodes.length; i++) {
@@ -204,13 +273,14 @@ function GraphTab({ graph, why, path }) {
             </text>
           </g>
         ))}
-        {laid.map((n, i) => {
-          const right = i % 2 === 0
+        {laid.map((n) => {
+          const right = n.side === 1
           const lx = n.px + (right ? 8 : -8)
           const anchor = right ? 'start' : 'end'
+          const ly = n.py + 4 + (n.dy || 0)
           const hot = active && hlNodes.has(n.id)
           return (
-            <g key={n.id} opacity={faded(n.id) ? 0.3 : 1}>
+            <g key={n.id} className="node" opacity={faded(n.id) ? 0.3 : 1}>
               {n.person ? (
                 <rect
                   x={n.px - 5} y={n.py - 5}
@@ -222,29 +292,32 @@ function GraphTab({ graph, why, path }) {
               {hot && (
                 <circle cx={n.px} cy={n.py} r={8} className="hotring" />
               )}
-              <text x={lx} y={n.py + 4} textAnchor={anchor}>
+              <text x={lx} y={ly} textAnchor={anchor}>
                 {n.id}
               </text>
-              {!n.person &&
-                n.props
-                  .filter((p) =>
-                    ['sharp', 'hot', 'liquid', 'electronic', 'medication'].includes(p),
-                  )
-                  .map((p, k) => (
-                    <g key={p}>
-                      <line
-                        x1={n.px} y1={n.py}
-                        x2={n.px + 8} y2={n.py + 12 + k * 12}
-                        className="has"
-                      />
-                      <text
-                        x={n.px + 10} y={n.py + 15 + k * 12}
-                        className="has"
-                      >
-                        HAS {p}
-                      </text>
-                    </g>
-                  ))}
+              {!n.person && (
+                <g className="has-sub">
+                  {n.props
+                    .filter((p) =>
+                      ['sharp', 'hot', 'liquid', 'electronic', 'medication', 'fragile'].includes(p),
+                    )
+                    .map((p, k) => (
+                      <g key={p}>
+                        <line
+                          x1={n.px} y1={n.py}
+                          x2={n.px + 8} y2={n.py + 12 + k * 12}
+                          className="has"
+                        />
+                        <text
+                          x={n.px + 10} y={n.py + 15 + k * 12}
+                          className="has"
+                        >
+                          HAS {p}
+                        </text>
+                      </g>
+                    ))}
+                </g>
+              )}
             </g>
           )
         })}
@@ -254,7 +327,8 @@ function GraphTab({ graph, why, path }) {
         <span style={{ color: '#e8590c' }}>● hot</span>{' '}
         <span style={{ color: '#e67700' }}>● medication</span>{' '}
         <span style={{ color: '#1971c2' }}>● liquid</span>{' '}
-        <span style={{ color: '#495057' }}>● electronic</span>
+        <span style={{ color: '#495057' }}>● electronic</span>{' '}
+        <span style={{ color: FRAGILE_COLOR }}>● fragile</span>
       </p>
     </div>
   )
@@ -275,6 +349,13 @@ function WhyPanel({ why }) {
                 {w.hard ? 'hard' : 'soft'}
               </span>{' '}
               <span className="origin">{w.origin}</span>
+              {w.incident_ref && (
+                <span className="dim">
+                  {' '}
+                  learned from incident #{w.incident_ref.n},{' '}
+                  {timeAgo(w.incident_ref.ts)}
+                </span>
+              )}
             </p>
             <p>{w.reason}</p>
             <p>
@@ -377,11 +458,198 @@ function Timeline({ rounds, halts, clears, done, onRound }) {
   )
 }
 
+function timeAgo(ts) {
+  const s = Math.max(0, (Date.now() - new Date(ts).getTime()) / 1000)
+  if (s < 60) return `${Math.floor(s)}s ago`
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+function RulesTab({ ownerToken }) {
+  const [versions, setVersions] = useState(null)
+  const [report, setReport] = useState(null)
+  const [incident, setIncident] = useState('')
+  const [msg, setMsg] = useState('')
+  async function refresh() {
+    const v = await fetch('/rules/versions')
+      .then((r) => r.json())
+      .catch(() => null)
+    setVersions(v)
+    const g = await fetch('/rules/gate-report')
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+    setReport(g)
+  }
+  useEffect(() => {
+    refresh()
+  }, [])
+  async function fileIncident(e) {
+    e.preventDefault()
+    const r = await fetch('/incident', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: incident }),
+    })
+    if (r.ok) {
+      const j = await r.json()
+      setMsg(`filed incident #${j.incident_n} (${j.id}) on run ${j.run_id}`)
+      setIncident('')
+    } else {
+      setMsg(`incident failed: ${r.status}`)
+    }
+  }
+  async function rollback(version) {
+    const r = await fetch('/rules/rollback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: String(version), token: ownerToken }),
+    })
+    if (r.ok) {
+      const j = await r.json()
+      setMsg(`rolled back '${j.rule_id}' (reverts v${j.reverts})`)
+      refresh()
+    } else {
+      setMsg(`rollback failed: ${r.status}`)
+    }
+  }
+  const incRow = report
+    ? (report.gate.replay || []).find((x) => !x.control)
+    : null
+  return (
+    <div>
+      <h2>Report an incident</h2>
+      <form onSubmit={fileIncident} className="row">
+        <input
+          value={incident}
+          onChange={(e) => setIncident(e.target.value)}
+          placeholder="that was unsafe: ..."
+          size={40}
+        />
+        <button type="submit">File on last run</button>
+      </form>
+      {msg && <p className="dim">{msg}</p>}
+      <h2>Learned rules</h2>
+      {!versions ? (
+        <p>loading...</p>
+      ) : versions.active.length === 0 ? (
+        <p>none yet</p>
+      ) : (
+        versions.active.map((a) => (
+          <div key={a.rule_id} className="card">
+            <p>
+              <b>{a.rule_id}</b> · v{a.seq} · from {a.incident} ·{' '}
+              {timeAgo(a.ts)}
+            </p>
+            {ownerToken ? (
+              <button onClick={() => rollback(a.seq)}>Roll back</button>
+            ) : (
+              <p className="dim">owner rollback (open with ?owner=…)</p>
+            )}
+          </div>
+        ))
+      )}
+      <h2>Last gate report</h2>
+      {!report ? (
+        <p>no learned rules yet</p>
+      ) : (
+        <div className="card">
+          <p>
+            <b>
+              v{report.version} {report.rule_id}
+            </b>{' '}
+            · {report.gate.accepted ? 'accepted' : 'rejected'} ·{' '}
+            {incRow && `${incRow.base} → ${incRow.new}`}
+          </p>
+          {(report.gate.stages || []).map((s) => (
+            <p key={s.name} className="dim">
+              {s.passed ? 'PASS' : 'FAIL'} {s.name}: {s.detail}
+            </p>
+          ))}
+          <pre>{JSON.stringify(report.rule, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TablePanel({ graph, source, highlight }) {
+  if (!graph) return <p className="dim">waiting for scene…</p>
+  const hlIds = new Set((highlight && highlight.ids) || [])
+  const rulesById = (highlight && highlight.rulesById) || {}
+  const hazards = []
+  const rest = []
+  for (const [id, o] of Object.entries(graph.objects || {})) {
+    const tag = hazardTag(o.properties)
+    if (tag) {
+      hazards.push({ id, tag, props: o.properties || [], conf: o.conf })
+    } else {
+      rest.push(id)
+    }
+  }
+  const grip = graph.gripper
+  const people = Object.entries(graph.people || {}).map(([pid, p]) => {
+    const d =
+      grip && p.hand
+        ? Math.round(
+          Math.hypot(
+            grip[0] - p.hand[0],
+            grip[1] - p.hand[1],
+            grip[2] - p.hand[2],
+          ) * 100,
+        )
+        : null
+    return { pid, dist: d }
+  })
+  return (
+    <div>
+      <h2>On the table</h2>
+      <p className="chips">
+        {hazards.map((h) => {
+          const hot = hlIds.has(h.id)
+          const showConf =
+            source === 'sam' && h.conf != null && h.conf < 0.9
+          return (
+            <span
+              key={h.id}
+              className={
+                'chip' + (hot ? ' hot' : '') +
+                (hlIds.size > 0 && !hot ? ' dim' : '')
+              }
+              style={
+                hot ? { borderColor: KIND_COLORS[highlight.kind] } : undefined
+              }
+            >
+              {hot && rulesById[h.id] && (
+                <title>{rulesById[h.id].join(', ')}</title>
+              )}
+              <span
+                className="dot"
+                style={{ background: hazardColor(h.props) }}
+              />{' '}
+              {h.id} {h.tag}
+              {showConf ? ` ${h.conf.toFixed(2)}` : ''}
+            </span>
+          )
+        })}
+      </p>
+      {rest.length > 0 && <p className="also">also: {rest.join(' · ')}</p>}
+      {people.map((p) => (
+        <p key={p.pid} className="dim">
+          {p.dist === null
+            ? `${p.pid}: hand tracked`
+            : `${p.pid}: hand ${p.dist} cm from gripper`}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 export default function App() {
   const [instruction, setInstruction] = useState('give me the knife')
   const [connected, setConnected] = useState(false)
   const [image, setImage] = useState(null)
-  const [boxes, setBoxes] = useState([])
+  const [source, setSource] = useState('truth')
   const [status, setStatus] = useState('idle')
   const [graph, setGraph] = useState(null)
   const [rounds, setRounds] = useState({})
@@ -422,7 +690,7 @@ export default function App() {
       if (ev.run_id !== runRef.current) resetRun(ev.run_id)
       if (ev.type === 'frame') {
         setImage(`data:image/jpeg;base64,${ev.image}`)
-        setBoxes(ev.boxes || [])
+        setSource(ev.source || 'truth')
       } else if (ev.type === 'graph') {
         setGraph(ev.graph)
       } else if (ev.type === 'proposal') {
@@ -531,6 +799,37 @@ export default function App() {
   const roundNums = Object.keys(rounds)
     .map(Number)
     .sort((a, b) => a - b)
+  const hlRound = [...roundNums].reverse().find(
+    (n) =>
+      rounds[n].verdict &&
+      (rounds[n].verdict.why_path || []).some(
+        (w) => typeof w !== 'string',
+      ),
+  )
+  const highlight = (() => {
+    if (hlRound === undefined) return null
+    const ids = new Set()
+    const rulesById = {}
+    for (const w of rounds[hlRound].verdict.why_path) {
+      if (typeof w === 'string') continue
+      const ends = []
+      for (const r of w.relations || []) ends.push(r.subj, r.obj)
+      for (const k of ['obj', 'near', 'electronic']) {
+        if (typeof (w.predicates || {})[k] === 'string') {
+          ends.push(w.predicates[k])
+        }
+      }
+      for (const id of ends) {
+        ids.add(id)
+        ;(rulesById[id] = rulesById[id] || []).push(w.rule)
+      }
+    }
+    return {
+      kind: rounds[hlRound].verdict.kind,
+      ids: [...ids],
+      rulesById,
+    }
+  })()
   const whyForGraph =
     whyRound !== null && rounds[whyRound] && rounds[whyRound].verdict
       ? rounds[whyRound].verdict.why_path
@@ -571,35 +870,16 @@ export default function App() {
       </p>
       <div className="split">
         <div className="left">
-          <div className="view">
-            {image ? (
+          {image ? (
+            <div className="view">
               <img src={image} alt="sim camera" />
-            ) : (
-              <div className="placeholder">
-                <p>loading scene...</p>
-              </div>
-            )}
-            {image && (
-              <svg viewBox="0 0 640 480" preserveAspectRatio="none">
-                {boxes.map((b) => (
-                  <g key={b.id}>
-                    <rect
-                      x={b.x0} y={b.y0}
-                      width={b.x1 - b.x0} height={b.y1 - b.y0}
-                    />
-                    {b.tag != null && (
-                      <text x={b.x0 + 3} y={b.y0 + 13}>
-                        {b.id} {b.tag}
-                        {b.conf != null && b.conf < 1
-                          ? ` ${b.conf.toFixed(2)}`
-                          : ''}
-                      </text>
-                    )}
-                  </g>
-                ))}
-              </svg>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="placeholder">
+              <p>loading scene...</p>
+            </div>
+          )}
+          <TablePanel graph={graph} source={source} highlight={highlight} />
           <h2>Timeline</h2>
           <Timeline
             rounds={rounds}
@@ -622,6 +902,12 @@ export default function App() {
               onClick={() => setTab('verdicts')}
             >
               Verdicts
+            </button>
+            <button
+              className={tab === 'rules' ? 'active' : ''}
+              onClick={() => setTab('rules')}
+            >
+              Rules
             </button>
           </div>
           {tab === 'graph' && (
@@ -686,6 +972,7 @@ export default function App() {
               )}
             </div>
           )}
+          {tab === 'rules' && <RulesTab ownerToken={ownerToken} />}
         </div>
       </div>
     </div>

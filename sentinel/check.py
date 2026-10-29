@@ -77,12 +77,110 @@ def _p_tilt_above_deg(motion, graph, i, params):
         {"tilt_deg": float(motion["tilt"][i])}
 
 
+def _p_held_near_object_property(motion, graph, i, params):
+    m = R.measure_held_object_property(motion, graph, i,
+                                       params["properties"])
+    if m is None:
+        return False, {}
+    return m["gap_cm"] <= float(params["within_cm"]), m
+
+
+def _p_object_near_edge(motion, graph, i, params):
+    """A graph-static sample predicate: an object with one of `properties`
+    within `edge_cm` of the counter edge (graph_view.edge_cm)."""
+    hits = [(oid, node["edge_cm"]) for oid, node in graph["objects"].items()
+            if node.get("edge_cm") is not None
+            and set(params["properties"]) & set(
+                node.get("properties", []))
+            and node["edge_cm"] <= float(params["edge_cm"])]
+    if not hits:
+        return False, {}
+    oid, ecm = min(hits, key=lambda h: h[1])
+    return True, {"edge_obj": oid, "edge_cm": ecm}
+
+
 SAMPLE_PREDS = {"held_property": _p_held_property,
                 "blade_toward_person": _p_blade_toward_person,
                 "held_near_person": _p_held_near_person,
                 "speed": _p_speed,
                 "held_near_electronic": _p_held_near_electronic,
-                "tilt_above_deg": _p_tilt_above_deg}
+                "tilt_above_deg": _p_tilt_above_deg,
+                "held_near_object_property":
+                    _p_held_near_object_property,
+                "object_near_edge": _p_object_near_edge}
+
+
+# R-02 fixed vocabulary for the learner: scope + param shapes + prose.
+# Scopes: sample (per motion sample), event (per release), motion
+# (whole plan). "live" is listed for load_rulebook only: the gate
+# rejects it (learned live rules need monitor support).
+VOCABULARY = {
+    "held_property": {
+        "scope": "sample", "params": "list",
+        "desc": "gripper holds an object with one of these properties"},
+    "blade_toward_person": {
+        "scope": "sample", "params": {"within_cm": "number"},
+        "desc": "held blade tip within N cm of a person, pointing at them"},
+    "held_near_person": {
+        "scope": "sample", "params": {"within_cm": "number"},
+        "desc": "held object within N cm of a person (reach margin "
+                "included)"},
+    "speed": {
+        "scope": "sample", "params": "speed",
+        "desc": '"normal" or "slow" gripper speed'},
+    "held_near_electronic": {
+        "scope": "sample", "params": {"within_cm": "number"},
+        "desc": "held object within N cm (horizontal) of an electronic"},
+    "tilt_above_deg": {
+        "scope": "sample", "params": "number",
+        "desc": "gripper tilt above N degrees while holding"},
+    "held_near_object_property": {
+        "scope": "sample",
+        "params": {"properties": "list", "within_cm": "number"},
+        "desc": "held object within N cm (horizontal) of another object "
+                "with one of these properties"},
+    "object_near_edge": {
+        "scope": "sample",
+        "params": {"properties": "list", "edge_cm": "number"},
+        "desc": "an object with one of these properties sits within N cm "
+                "of the counter edge (graph property, same every sample)"},
+    "release_property": {
+        "scope": "event", "params": "list",
+        "desc": "released object has one of these properties"},
+    "release_above_surface": {
+        "scope": "event", "params": "bool",
+        "desc": "release happens in the air (true) or at a surface"},
+    "release_near_person": {
+        "scope": "event", "params": {"within_cm": "number"},
+        "desc": "release within N cm of a person"},
+    "release_into_hand": {
+        "scope": "event", "params": "bool",
+        "desc": "release goes into a person's hand"},
+    "handover_to_person": {
+        "scope": "event", "params": "bool",
+        "desc": "a hand-over to a person happens"},
+    "given_property": {
+        "scope": "event", "params": "list",
+        "desc": "handed-over object has one of these properties"},
+    "given_owned_by_other": {
+        "scope": "event", "params": "bool",
+        "desc": "handed-over object is owned by someone else"},
+    "recipient_authorised": {
+        "scope": "event", "params": "bool",
+        "desc": "the hand-over recipient is authorised"},
+    "target_unknown": {
+        "scope": "motion", "params": "bool",
+        "desc": "plan grasps an object missing from the scene graph"},
+    "target_low_confidence": {
+        "scope": "motion", "params": {"below": "number"},
+        "desc": "plan grasps an object perceived below confidence N"},
+    "derived_from_scene_text": {
+        "scope": "motion", "params": "bool",
+        "desc": "the plan was shaped by quarantined scene text"},
+    "person_in_path": {
+        "scope": "live", "params": "bool",
+        "desc": "LIVE ONLY: a person blocks the arm during execution"},
+}
 
 
 # --- event-scope predicates: (ev, graph, params) -> (match, evidence)
@@ -227,26 +325,33 @@ def _eval_clause(clause: dict, table: dict, *args) -> tuple[bool, dict]:
 
 
 def load_rulebook(path=None) -> list[dict]:
-    """Read hard + soft rules; fail LOUD on unknown predicates (fail-closed)."""
+    """Read hard + soft (+ learned) rules; fail LOUD on unknown
+    predicates or mixed-scope rules (fail-closed)."""
     root = Path(path) if path else RULES_DIR
     rules = []
     for file in sorted(root.rglob("*.json")):
         rule = json.loads(file.read_text())
+        names = set()
         for clause in (rule["when"], rule["unless"]):
-            names = set(clause) - {"any"}
+            names |= set(clause) - {"any"}
             for sub in clause.get("any", []):
                 names |= set(sub) - {"any"}
-            known = (set(SAMPLE_PREDS) | set(EVENT_PREDS)
-                     | set(MOTION_PREDS) | set(LIVE_PREDS))
-            bad = names - known
-            if bad:
-                raise ValueError(f"{file.name}: unknown predicate(s) "
-                                 f"{sorted(bad)}")
+        known = (set(SAMPLE_PREDS) | set(EVENT_PREDS)
+                 | set(MOTION_PREDS) | set(LIVE_PREDS))
+        bad = names - known
+        if bad:
+            raise ValueError(f"{file.name}: unknown predicate(s) "
+                             f"{sorted(bad)}")
+        scopes = {VOCABULARY[n]["scope"] for n in names} - {"live"}
+        if len(scopes) > 1:
+            raise ValueError(f"{file.name}: mixed-scope rule {sorted(scopes)}"
+                             " (one scope per rule)")
         rules.append(rule)
     return rules
 
 
-def _detail(rule_id: str, ev: dict) -> str:
+def _detail(rule: dict, ev: dict) -> str:
+    rule_id = rule["id"]
     margin = (f" (clearance {ev['margin_cm']:.0f} cm)"
               if "margin_cm" in ev else "")
     if rule_id == "sharp_toward_person":
@@ -282,7 +387,7 @@ def _detail(rule_id: str, ev: dict) -> str:
         if not src:
             return "motion has no provenance"
         return f"motion derived from scene text ({src}), not the owner"
-    return f"{rule_id} fired"
+    return rule.get("reason") or f"{rule_id} fired"
 
 
 def _node_of(ev: dict) -> str | None:
@@ -316,7 +421,7 @@ def _steps_of(motion: dict, scope: str, item, ev: dict) -> list[str]:
 def _relations_of(rule_id: str, ev: dict) -> list[dict]:
     """Graph-relation triples the rule fired on (D-03 Why?)."""
     subj = ev.get("obj", "motion")
-    who = ev.get("person") or ev.get("electronic")
+    who = ev.get("person") or ev.get("electronic") or ev.get("near")
     if rule_id == "sharp_toward_person":
         rel = "POINTS_AT"
     elif rule_id == "liquid_above_electronic":
@@ -370,8 +475,7 @@ def check(motion, graph, rules=None) -> dict:
                 if blocked:
                     continue
             findings.append({"rule": rule["id"], "node": _node_of(ev),
-                             "t": when_t(item), "detail": _detail(rule["id"],
-                                                                  ev),
+                             "t": when_t(item), "detail": _detail(rule, ev),
                              "_verdict": rule["verdict"],
                              "_hard": rule["hard"],
                              "_hint": rule["constraint_hint"],
@@ -381,7 +485,9 @@ def check(motion, graph, rules=None) -> dict:
                              "_predicates": ev,
                              "_steps": _steps_of(motion, scope, item, ev),
                              "_relations": _relations_of(rule["id"], ev),
-                             "_params": rule["when"]})
+                             "_params": rule["when"],
+                             "_learned_from": rule.get("learned_from",
+                                                       [])})
             break  # first firing per rule
     # C-09: fill the liquid hint's {safe_spot} from the graph. No spot
     # (crowded counter, or a graph that never computed one) downgrades
@@ -407,7 +513,8 @@ def check(motion, graph, rules=None) -> dict:
                  "origin": f["_origin"], "reason": f["_reason"],
                  "predicates": f["_predicates"], "steps": f["_steps"],
                  "relations": f["_relations"],
-                 "params": f["_params"]} for f in ordered]
+                 "params": f["_params"],
+                 "learned_from": f["_learned_from"]} for f in ordered]
     # Feedback explains the verdict: hints from soft fixable findings AT
     # the winning severity. Any HARD finding kills all feedback (never
     # teach a jailbroken planner), even when a soft finding fired too.
@@ -419,7 +526,7 @@ def check(motion, graph, rules=None) -> dict:
     for f in findings:
         for k in ("_verdict", "_hard", "_hint", "_fixable", "_origin",
                   "_reason", "_predicates", "_steps", "_relations",
-                  "_params"):
+                  "_params", "_learned_from"):
             del f[k]
     print(f"Sentinel: {kind}" + (f" ({len(findings)} finding(s))"
                                        if findings else ""))

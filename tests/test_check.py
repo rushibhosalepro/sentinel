@@ -5,7 +5,10 @@ import json
 import numpy as np
 import pytest
 
+from graph.scene_graph import load_props
 from sentinel.check import check, load_rulebook
+from sentinel.graph_view import graph_snapshot
+from sim.world import load_scene
 
 DOWN = [0.0, 1.0, 0.0, 0.0]
 TURNED = [0.0, 0.0, -1.0, 0.0]  # Rz(180) * down
@@ -82,6 +85,83 @@ def test_why_carries_structured_evidence():
     assert w["steps"] == ["s1"]  # firing sample's plan step
     assert w["relations"] == [{"subj": "chef_knife", "rel": "POINTS_AT",
                                "obj": "owner"}]
+
+
+def _fragile_rule():
+    return {
+        "id": "fragile_near_edge_fast",
+        "when": {
+            "held_near_object_property": {"properties": ["fragile"],
+                                          "within_cm": 10.0},
+            "object_near_edge": {"properties": ["fragile"],
+                                 "edge_cm": 10.0},
+            "speed": "normal",
+        },
+        "unless": {}, "verdict": "ASK", "hard": False, "fixable": True,
+        "constraint_hint": "slow near fragile",
+        "reason": "A held object within 10 cm of a fragile object near "
+                  "the counter edge at normal speed.",
+        "learned_from": ["inc-001"], "origin": "handwritten",
+    }
+
+
+def _fragile_graph(edge_cm=2.0, glass_xy=(0.52, 0.0)):
+    g = _graph()
+    g["objects"]["plate"] = {"pos": [-0.16, -0.24, 0.04],
+                             "quat": list(DOWN), "properties": [],
+                             "owner": "owner", "conf": 1.0}
+    g["objects"]["wine_glass"] = {"pos": [glass_xy[0], glass_xy[1], 0.0],
+                                  "quat": list(DOWN),
+                                  "properties": ["fragile"], "owner": "owner",
+                                  "conf": 1.0, "edge_cm": edge_cm}
+    return g
+
+
+def _carry(to_xy, speed="normal"):
+    # Grasp above the plate, then carry to (x, y): the grasp offset is
+    # fixed at the first held sample, so the carried point really moves.
+    return _motion([[-0.16, -0.24, 0.15, DOWN],
+                    [to_xy[0], to_xy[1], 0.2, DOWN]],
+                   ["plate", "plate"], speed=speed)
+
+
+def test_learned_style_rule_fires_with_reason_detail():
+    v = check(_carry((0.5, 0.0)), _fragile_graph(), [_fragile_rule()])
+    assert v["kind"] == "ASK"
+    (w,) = v["why_path"]
+    assert w["origin"] == "learned"
+    assert w["learned_from"] == ["inc-001"]
+    assert w["relations"] == [{"subj": "plate", "rel": "NEAR",
+                               "obj": "wine_glass"}]
+    assert w["predicates"]["gap_cm"] == pytest.approx(2.0, abs=0.5)
+    assert v["findings"][0]["detail"].startswith("A held object within")
+    assert v["feedback"] == ["slow near fragile"]
+
+
+def test_fragile_rule_needs_all_three_clauses():
+    slow = _carry((0.5, 0.0), speed="slow")
+    assert check(slow, _fragile_graph(), [_fragile_rule()])["kind"] == "ALLOW"
+    mid = _carry((0.5, 0.0))
+    assert check(mid, _fragile_graph(edge_cm=50.0),
+                 [_fragile_rule()])["kind"] == "ALLOW"
+    far = _carry((0.0, 0.0))
+    assert check(far, _fragile_graph(), [_fragile_rule()])["kind"] == "ALLOW"
+
+
+def test_edge_cm_in_real_snapshot():
+    model, data = load_scene("kitchen")
+    graph = graph_snapshot(model, data, load_props())
+    assert graph["objects"]["wine_glass"]["edge_cm"] == 3.0
+    assert graph["objects"]["plate"]["edge_cm"] == 9.0
+    assert len(graph["gripper"]) == 3  # dashboard people line
+
+
+def test_mixed_scope_rulebook_rejected(tmp_path):
+    rule = _fragile_rule()
+    rule["when"] = {"speed": "normal", "target_unknown": True}
+    (tmp_path / "mixed.json").write_text(json.dumps(rule))
+    with pytest.raises(ValueError, match="mixed-scope"):
+        load_rulebook(tmp_path)
 
 
 def test_hard_findings_never_become_ask():

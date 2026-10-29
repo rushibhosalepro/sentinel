@@ -45,6 +45,11 @@ def _stub(monkeypatch, verdict):
     monkeypatch.setattr(live, "check", lambda m, g: verdict)
 
 
+def _log(tmp_path):
+    with open(tmp_path / "events.jsonl") as f:
+        return [json.loads(line) for line in f]
+
+
 def test_ask_question():
     v = {"findings": [{"detail": "too fast"}, {"detail": "near owner"}]}
     assert live.ask_question(v) == "Allow the motion? (too fast; near owner)"
@@ -82,6 +87,12 @@ def test_headless_approve_executes(monkeypatch, tmp_path):
     assert done["status"] == "complete"
     assert done["detail"]["ask"]["decision"] == "approve"
     assert (tmp_path / "ask_ok.mp4").exists()
+    log = _log(tmp_path)  # R-01: verdict + ask_answer entries
+    assert [e["kind"] for e in log] == ["verdict", "ask_answer"]
+    assert log[0]["outcome"] == "ASK" and log[0]["run_id"]
+    assert log[1]["outcome"] == "approve" and log[1]["who"] == "owner"
+    assert log[1]["ask_id"] == done["detail"]["ask"]["ask_id"]
+    assert log[1]["run_id"] == log[0]["run_id"]
 
 
 def test_headless_deny_stops(monkeypatch, tmp_path):
@@ -94,6 +105,9 @@ def test_headless_deny_stops(monkeypatch, tmp_path):
     done = next(e for e in events if e["type"] == "done")
     assert done["status"] == "ASK"
     assert done["detail"]["ask"]["decision"] == "deny"
+    log = _log(tmp_path)
+    assert [e["kind"] for e in log] == ["verdict", "ask_answer"]
+    assert log[1]["outcome"] == "deny"
 
 
 def test_headless_hard_ask_never_asks(monkeypatch, tmp_path):

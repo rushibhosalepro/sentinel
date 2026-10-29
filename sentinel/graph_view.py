@@ -47,6 +47,18 @@ def graph_snapshot(model, data, props: dict,
                                 spec.get("properties", [])),
                             "owner": spec.get("owner"),
                             "conf": float(p["conf"])}
+    try:
+        gid = model.geom("counter_top").id
+        cx, cy = (float(v) for v in data.geom_xpos[gid][:2])
+        sx, sy = (float(v) for v in model.geom_size[gid][:2])
+        for node in objects.values():
+            x, y = float(node["pos"][0]), float(node["pos"][1])
+            node["edge_cm"] = round(max(0.0, min(x - (cx - sx),
+                                                 (cx + sx) - x,
+                                                 y - (cy - sy),
+                                                 (cy + sy) - y)) * 100.0, 1)
+    except Exception:  # noqa: BLE001 - scene without a counter: no edges
+        pass
     hid = model.body("human_hand").id
     tid = model.body("human_torso").id
     scopes = props.get("people", {}).get("owner", {}).get("authorised", [])
@@ -58,5 +70,10 @@ def graph_snapshot(model, data, props: dict,
                              "authorised": list(scopes), "role": "owner",
                              "conf": 1.0}},
     }
+    try:
+        gid = model.body("hand").id
+        graph["gripper"] = data.xpos[gid].tolist()
+    except Exception:  # noqa: BLE001 - scene without a robot hand
+        pass
     graph["safe_spot_pour"] = find_safe_spot(model, data, graph)
     return graph

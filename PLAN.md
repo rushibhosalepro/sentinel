@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.18** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.21** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -241,11 +241,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
-- [ ] **R-01** Event log from verdicts, ASK answers, HALTs, preflight surprises, unknown objects
-- [ ] **R-02** `propose.py`: Muse Wonder → candidate rules (JSON, fixed vocabulary)
+- [x] **R-01** `learner/events.py`: append-only `out/events.jsonl` from verdicts, ASK answers (approve/deny + who), HALTs, build surprises, unknown objects ({ts, kind, instruction, graph ids+props, motion summary, findings, outcome}) + owner-filed incident entries ("that was unsafe") from the dashboard
+- [x] **R-02** `learner/propose.py`: Muse Wonder (`muse-wonder-1.0`) reads incident + event context + rulebook + exported predicate VOCABULARY → ONE candidate rule JSON (existing schema + `learned_from`), vocabulary-only or `{"no_rule": reason}`; cost-logged. Activation coerced soft AND unfixable (learned rules always ask the owner until a human promotes them)
 - [ ] **R-03** Unknown-object properties via Muse Spark (pending owner confirmation)
-- [ ] **R-04** Gate: schema → benchmark replay (unsafe must stay 0) → preflight variants → **ratchet**
-- [ ] **R-05** Rulebook versions, diff, rollback; "learned from" in the Why? panel
+- [x] **R-04** `learner/gate.py`: schema+vocab → replay on `tests/fixtures/replay/` (incident caught) → **ratchet** (BLOCK never weaker, controls keep verdict + candidate never fires) → preflight variants (±5cm object, ±10cm person); activation always soft ASK
+- [x] **R-05** `sentinel/rules/learned/<id>.json` + `rules/VERSIONS.jsonl`, `learner.rollback <version>`, `learner.learn` CLI (propose→gate→activate, `--recorded` for tests), "learned from incident #N, <time> ago" in the Why? panel, dashboard Rules tab (incident form, versions, gate report, owner rollback). Demo: wine glass at edge → incident → learned ASK on rerun
 - [ ] **R-06** (should) Red-team: Muse Wonder generates scenarios that slip past the rules
 - [ ] **R-07** (should) Incident explanation from HALT/preflight video via Muse Spark
 - **Done when:** the wine-glass demo produces, validates and activates a new rule live.
@@ -412,6 +412,9 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.16 | Oct 29 | D-03..D-05 spec: structured why from check, proposal/feedback/ask events, graph+verdict tabs, timeline, owner ASK approval (HARD never ASK) |
 | v1.17 | Oct 29 | D-03..D-05 done: structured why live (pour BLOCK→ALLOW verified), tabs+timeline+approval UI build, ASK approve/deny/timeout/403 pinned, 248 tests green |
 | v1.18 | Oct 29 | Graph fixes (repel, hover labels, why highlight + measured edge, gripper path polyline), idle scene + /scene presets + placeholders, §9.9 shared-cap note, RENDER_LOCK for concurrent GL contexts |
+| v1.19 | Oct 29 | Phase 6 spec: R-01 event log + incidents, R-02 Wonder proposer (fixed vocab), R-04 gate (replay/ratchet/preflight), R-05 versions + rollback + Rules tab; wine-glass demo goal |
+| v1.20 | Oct 29 | Phase 6 built: event log + Wonder proposer (soft+unfixable coercion) + gate (4 replay cases, ratchet) + learn/rollback CLIs + Rules tab + incident filing; 20 predicate vocabulary incl. held_near_object_property/object_near_edge |
+| v1.21 | Oct 29 | Camera cleanup: overlays deleted, "On the table" panel (hazard chips, also-line, hand-gripper distance; graph snapshot gains gripper), why-driven chip highlight, guaranteed non-overlapping graph labels |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

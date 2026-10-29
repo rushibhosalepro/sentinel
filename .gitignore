@@ -14,3 +14,7 @@ sim/assets/
 pytest-of-*/
 dashboard/web/node_modules/
 dashboard/web/dist/
+
+# learner runtime state (demo must start without learned rules)
+sentinel/rules/learned/
+sentinel/rules/VERSIONS.jsonl

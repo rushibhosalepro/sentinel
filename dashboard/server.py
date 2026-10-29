@@ -30,6 +30,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from dashboard.events import done_event
+from learner import events as learner_events
+from learner import versions as rule_versions_mod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,6 +45,15 @@ class Instruction(BaseModel):
 
 class AskDecision(BaseModel):
     decision: Literal["approve", "deny"]
+    token: str
+
+
+class Incident(BaseModel):
+    text: str
+
+
+class Rollback(BaseModel):
+    version: str
     token: str
 
 
@@ -162,7 +173,17 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
     registry = AskRegistry()
     state = {"busy": False, "run_id": 0, "lock": threading.Lock(),
              "subs": set(), "latest": {}, "history": [], "idle": {},
-             "render_lock": threading.Lock()}
+             "render_lock": threading.Lock(), "instruction": None,
+             "live_run_id": None, "incident_idx": None}
+
+    def _incident_index():
+        """{event id: (incident_n, ts)} from the event log (cached)."""
+        if state["incident_idx"] is None:
+            state["incident_idx"] = {
+                e["id"]: (e["incident_n"], e["ts"])
+                for e in learner_events.read_events()
+                if e.get("kind") == "incident"}
+        return state["incident_idx"]
 
     def _publish(event: dict):
         with state["lock"]:
@@ -171,6 +192,19 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             if event["type"] in ("proposal", "verdict", "feedback", "ask",
                                  "halt", "clear", "done"):
                 state["history"].append((state["run_id"], event))
+            if event["type"] == "verdict":
+                if event.get("live_run_id"):
+                    state["live_run_id"] = event["live_run_id"]
+                for w in event.get("why_path") or []:
+                    if not isinstance(w, dict):
+                        continue
+                    if w.get("origin") != "learned":
+                        continue
+                    for lid in w.get("learned_from") or []:
+                        hit = _incident_index().get(lid)
+                        if hit is not None:
+                            w["incident_ref"] = {"n": hit[0], "ts": hit[1]}
+                            break
             subs = list(state["subs"])
         for q in subs:
             q.put(event)
@@ -218,6 +252,8 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             state["run_id"] += 1
             run_id = state["run_id"]
             state["history"] = []
+            state["instruction"] = body.instruction
+            state["live_run_id"] = None
         kwargs = {"perception": body.perception, "model": body.model,
                   "preset": body.preset}
 
@@ -235,6 +271,83 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
 
         threading.Thread(target=_run, daemon=True).start()
         return {"run_id": run_id, "status": "started"}
+
+    @app.post("/incident")
+    def file_incident(body: Incident):
+        """File "that was unsafe" on the last run (R-01 incident entry)."""
+        with state["lock"]:
+            if state["instruction"] is None:
+                return JSONResponse({"error": "no run yet"},
+                                    status_code=404)
+            history = list(state["history"])
+            instruction = state["instruction"]
+            live_id = state["live_run_id"]
+            srv_run = state["run_id"]
+            latest_graph = state["latest"].get("graph")
+        verdicts = [e for _, e in history if e["type"] == "verdict"]
+        dones = [e for _, e in history if e["type"] == "done"]
+        findings = verdicts[-1]["findings"] if verdicts else []
+        if dones:
+            outcome = dones[-1]["status"]
+            motion = dones[-1]["detail"].get("motion")
+        elif verdicts:
+            outcome = verdicts[-1]["kind"]
+            motion = None
+        else:
+            outcome, motion = "unknown", None
+        graph = None
+        if latest_graph is not None:
+            graph = learner_events.compact_graph(latest_graph[1]["graph"])
+        closest = None
+        if live_id is not None:
+            logged = [e for e in learner_events.read_events()
+                      if e.get("run_id") == live_id
+                      and e.get("kind") == "verdict"]
+            if logged:
+                closest = logged[-1].get("closest")
+        entry = learner_events.append_event({
+            "kind": "incident", "run_id": live_id,
+            "instruction": instruction, "text": body.text,
+            "graph": graph, "motion": motion, "closest": closest,
+            "findings": findings, "outcome": outcome})
+        with state["lock"]:
+            state["incident_idx"] = None
+        return {"id": entry["id"], "incident_n": entry["incident_n"],
+                "run_id": srv_run}
+
+    @app.get("/rules/versions")
+    def rule_versions():
+        """Journal + active learned rules for the Rules tab."""
+        return rule_versions_mod.status()
+
+    @app.get("/rules/gate-report")
+    def gate_report(version: int | None = None):
+        """Gate report of the latest (or Nth) learned rule."""
+        adds = [e for e in rule_versions_mod.journal()
+                if e.get("action") == "add"]
+        pick = None
+        if version is None:
+            pick = adds[-1] if adds else None
+        else:
+            pick = next((e for e in adds if e["seq"] == version), None)
+        if pick is None:
+            return JSONResponse({"error": "no such learned rule"},
+                                status_code=404)
+        return {"version": pick["seq"], "rule_id": pick["rule_id"],
+                "rule": pick["rule"], "gate": pick["gate"],
+                "incident": pick.get("incident")}
+
+    @app.post("/rules/rollback")
+    def rollback_rule(body: Rollback):
+        """Roll back a learned rule (owner only, like ASK approvals)."""
+        if token is None or not hmac.compare_digest(body.token, token):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        try:
+            entry = rule_versions_mod.rollback(body.version)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=404)
+        return {"rule_id": entry["rule_id"],
+                "reverts": entry["reverts"], "seq": entry["seq"]}
 
     @app.post("/ask/{ask_id}")
     def decide_ask_endpoint(ask_id: str, body: AskDecision):

@@ -65,16 +65,22 @@ def plan_event(steps: list, rounds: int) -> dict:
 
 
 def verdict_event(round_no: int, kind: str, findings: list,
-                  feedback: list | None, why_path: list) -> dict:
+                  feedback: list | None, why_path: list,
+                  live_run_id: str | None = None) -> dict:
     """One round's verdict: kind + findings + structured why from check().
 
     why_path entries are {rule, verdict, hard, t, origin, reason,
-    predicates, steps, relations, params}; why_path_for(trace) stays as
-    fallback.
+    predicates, steps, relations, params, learned_from};
+    why_path_for(trace) stays as fallback. live_run_id (R-01) joins
+    the dashboard to the event log (named apart from the envelope's
+    server run_id).
     """
-    return {"type": VERDICT, "round": round_no, "kind": kind,
-            "findings": to_jsonable(findings), "feedback": feedback,
-            "why_path": to_jsonable(why_path)}
+    ev = {"type": VERDICT, "round": round_no, "kind": kind,
+          "findings": to_jsonable(findings), "feedback": feedback,
+          "why_path": to_jsonable(why_path)}
+    if live_run_id is not None:
+        ev["live_run_id"] = live_run_id
+    return ev
 
 
 def proposal_event(round_no: int, model: str, latency_s: float,

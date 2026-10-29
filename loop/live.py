@@ -31,6 +31,7 @@ import mujoco
 import numpy as np
 
 from graph.scene_graph import load_props
+from learner import events as learner_events
 from loop.handover import build_execution_script, step_handover
 from loop.feedback import (MAX_REPLAN_ROUNDS, constraints_for,
                            format_error_note, format_replan_note,
@@ -188,6 +189,38 @@ def _print_plan(steps: list[dict]) -> None:
         else:
             shown = args
         print(f"  {s['id']} {s['primitive']} {shown}  # {s['why']}")
+
+
+def _closest_approach(motion: dict, graph: dict) -> dict:
+    """Min held-gap per hazard class (R-01: lets Wonder calibrate).
+
+    One sweep over held samples; None per class when empty-handed or
+    no such target exists. Rounded to mm: telemetry, not evidence.
+    """
+    from sentinel import relations as R
+
+    out = {"fragile_cm": None, "fragile_obj": None,
+           "electronic_cm": None, "electronic_obj": None,
+           "person_cm": None, "person": None}
+    for i in range(len(motion["t"])):
+        if motion["held"][i] is None:
+            continue
+        m = R.measure_held_object_property(motion, graph, i, ["fragile"])
+        if m is not None and (out["fragile_cm"] is None
+                              or m["gap_cm"] < out["fragile_cm"]):
+            out["fragile_cm"] = round(m["gap_cm"], 1)
+            out["fragile_obj"] = m["near"]
+        m = R.measure_held_electronic(motion, graph, i)
+        if m is not None and (out["electronic_cm"] is None
+                              or m["gap_cm"] < out["electronic_cm"]):
+            out["electronic_cm"] = round(m["gap_cm"], 1)
+            out["electronic_obj"] = m["electronic"]
+        m = R.measure_held(motion, graph, i)
+        if m is not None and (out["person_cm"] is None
+                              or m["gap_cm"] < out["person_cm"]):
+            out["person_cm"] = round(m["gap_cm"], 1)
+            out["person"] = m["person"]
+    return out
 
 
 def _motion_summary(motion: dict) -> str:
@@ -416,6 +449,12 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 entry = _error_entry(attempt, model_name, t0, len(steps),
                                      err, latency=latency)
                 rounds_log.append(entry)
+                learner_events.append_event({
+                    "kind": "build_surprise",
+                    "run_id": job.get("run_id"),
+                    "instruction": job["instruction"], "round": attempt,
+                    "graph": None, "motion": None, "findings": [],
+                    "outcome": err})
                 if rounds >= MAX_REPLAN_ROUNDS:
                     trace.append(f"Round {attempt}: ERROR {err}"[:80])
                     results.put({"gen": job["gen"], "error": err,
@@ -449,6 +488,13 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                                      err, latency=latency)
                 entry["graph"] = graph
                 rounds_log.append(entry)
+                learner_events.append_event({
+                    "kind": "build_surprise",
+                    "run_id": job.get("run_id"),
+                    "instruction": job["instruction"], "round": attempt,
+                    "graph": learner_events.compact_graph(graph),
+                    "motion": _motion_summary(script["motion"]),
+                    "findings": [], "outcome": err})
                 results.put({"gen": job["gen"], "error": err,
                              "trace": trace, "rounds_log": rounds_log})
                 break
@@ -469,6 +515,19 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                                       "n_steps": len(steps)},
                          "feedback_note": None, "error": None}
             rounds_log.append(log_entry)
+            ev_base = {"run_id": job.get("run_id"),
+                       "instruction": job["instruction"], "round": attempt,
+                       "graph": learner_events.compact_graph(graph),
+                       "motion": _motion_summary(script["motion"]),
+                       "closest": _closest_approach(script["motion"],
+                                                   graph),
+                       "findings": verdict["findings"],
+                       "outcome": verdict["kind"]}
+            learner_events.append_event({"kind": "verdict", **ev_base})
+            if any(f["rule"] == "unknown_object"
+                   for f in verdict["findings"]):
+                learner_events.append_event(
+                    {"kind": "unknown_object", **ev_base})
             if not should_replan(verdict, rounds):
                 trace.append(entry)
                 results.put({"gen": job["gen"], "steps": steps,
@@ -519,15 +578,21 @@ def _random_reach_target() -> np.ndarray:
 
 
 CUP_NEAR_LAPTOP = (0.35, 0.06, 0.0)  # F3: 9 cm off the laptop edge
+GLASS_AT_EDGE = (0.3, -0.32, 0.0)  # wine-glass demo: 3 cm off the edge
 
 
 def _apply_preset(model, data, home, name: str) -> None:
-    """Stage the scene: 'cup_next_to_laptop' (F3) or 'default' (F4)."""
-    adr = free_qposadr(model, "cup")
+    """Stage the scene: 'cup_next_to_laptop' (F3), 'glass_at_edge'
+    (wine-glass demo) or 'default' (F4)."""
+    cup = free_qposadr(model, "cup")
+    glass = free_qposadr(model, "wine_glass")
     if name == "cup_next_to_laptop":
-        data.qpos[adr:adr + 3] = CUP_NEAR_LAPTOP
+        data.qpos[cup:cup + 3] = CUP_NEAR_LAPTOP
+    elif name == "glass_at_edge":
+        data.qpos[glass:glass + 3] = GLASS_AT_EDGE
     elif name == "default":
-        data.qpos[adr:adr + 7] = home["qpos"][adr:adr + 7]
+        data.qpos[cup:cup + 7] = home["qpos"][cup:cup + 7]
+        data.qpos[glass:glass + 7] = home["qpos"][glass:glass + 7]
     else:
         raise ValueError(f"unknown preset {name!r}")
     mujoco.mj_forward(model, data)
@@ -649,12 +714,13 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     results: queue.Queue = queue.Queue()
     threading.Thread(target=_planner_worker, args=(model, jobs, results),
                      daemon=True).start()
+    run_id = f"run-{uuid.uuid4().hex[:6]}"
     job = {"gen": 0, "instruction": instruction, "facts": facts,
            "data": data, "valid_ids": set(props["objects"]),
            "valid_people": set(props["people"]), "props": props,
            "home_pos": home_pos, "home_quat": home_quat,
            "perceived": perceived, "model": planner_model,
-           "quarantine": quarantine}
+           "quarantine": quarantine, "run_id": run_id}
     if attack == "scene-text":
         from perception.reader import stage_attack_frame
         job["attack_frame"] = stage_attack_frame(model, data, props)
@@ -696,7 +762,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                         entry["round"], entry["kind"],
                         entry["findings"], entry["feedback"],
                         entry.get("why")
-                        or why_path_for(trace, entry["round"])))
+                        or why_path_for(trace, entry["round"]),
+                        live_run_id=run_id))
                 if entry.get("feedback_note"):
                     emit(feedback_event(entry["round"],
                                         entry["feedback_note"]))
@@ -730,6 +797,17 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                               ask_handler, emit)
                 ask = {"ask_id": ask_id, "decision": decision,
                        "round": final_round}
+                graphs = [e["graph"] for e in (res.get("rounds_log") or [])
+                          if e.get("graph")]
+                learner_events.append_event({
+                    "kind": "ask_answer", "run_id": run_id,
+                    "instruction": instruction, "round": final_round,
+                    "graph": learner_events.compact_graph(
+                        graphs[-1] if graphs else None),
+                    "motion": _motion_summary(script["motion"]),
+                    "findings": verdict["findings"],
+                    "outcome": decision,
+                    "ask_id": ask_id, "who": "owner"})
                 if decision == "approve":
                     print(f"Sentinel: ASK {ask_id} approved by owner, "
                           f"executing")
@@ -838,6 +916,17 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                 from dashboard.events import halt_event
                                 emit(halt_event(
                                     vnow, dist * 100.0, what))
+                            learner_events.append_event({
+                                "kind": "halt", "run_id": run_id,
+                                "instruction": instruction, "round": None,
+                                "graph": learner_events.compact_graph(
+                                    graph_snapshot(model, data, props)),
+                                "motion": _motion_summary(
+                                    script["motion"]),
+                                "findings": [],
+                                "outcome": {"t": round(vnow, 2),
+                                            "dist_cm": round(dist * 100.0, 1),
+                                            "near": what}})
                 else:
                     if kind == "handover" and lh is not None \
                             and lh.f6 is not None:
@@ -900,7 +989,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "trace": trace,
                                           "perceived": perceived,
                                           "model": planner_model,
-                                          "quarantine": quarantine})
+                                          "quarantine": quarantine,
+                                          "run_id": run_id})
                                 _, script, rounds, trace, ask = take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
@@ -947,7 +1037,9 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         from dashboard.events import done_event
         emit(done_event("complete", {"takers": took, "rounds": rounds,
                                      "duration_s": round(vnow, 2),
-                                     "ask": ask}))
+                                     "ask": ask,
+                                     "motion": _motion_summary(
+                                         script["motion"])}))
 
 
 def main() -> None:
@@ -957,7 +1049,7 @@ def main() -> None:
     parser.add_argument("--record", default=None, metavar="OUT.mp4",
                         help="headless: run one instruction, save a video")
     parser.add_argument("--preset", default=None,
-                        choices=["cup_next_to_laptop"],
+                        choices=["cup_next_to_laptop", "glass_at_edge"],
                         help="headless: stage a scene preset first (F3 live)")
     parser.add_argument("--f6-at", default=None, type=float,
                         metavar="SEC",
@@ -1069,6 +1161,7 @@ def main() -> None:
                                 reaching=person["active"])
             captured = _capture()
             attacked = _capture_attack()
+        st["run_id"] = f"run-{uuid.uuid4().hex[:6]}"
         job = {"gen": st["gen"], "instruction": text,
                "facts": facts, "data": scratch,
                "valid_ids": valid_ids,
@@ -1076,7 +1169,7 @@ def main() -> None:
                "props": props,
                "home_pos": home["hand_pos"],
                "home_quat": home["hand_quat"],
-               "model": args.model}
+               "model": args.model, "run_id": st["run_id"]}
         if captured is not None:
             job["frame"] = captured
         if attacked is not None:
@@ -1116,7 +1209,7 @@ def main() -> None:
                "home_pos": home["hand_pos"],
                "home_quat": home["hand_quat"],
                "rounds": rounds_start, "trace": trace,
-               "model": args.model}
+               "model": args.model, "run_id": st.get("run_id")}
         if captured is not None:
             job["frame"] = captured
         if attacked is not None:
@@ -1352,6 +1445,18 @@ def main() -> None:
                                         "what": what, "clear_since": None,
                                         "clear_for": 0.0})
                         print(f"HALT: {entry}")
+                        learner_events.append_event({
+                            "kind": "halt",
+                            "run_id": st.get("run_id"),
+                            "instruction": st.get("instruction"),
+                            "round": None,
+                            "graph": learner_events.compact_graph(
+                                graph_snapshot(model, data, props)),
+                            "motion": _motion_summary(seg_motion),
+                            "findings": [],
+                            "outcome": {"t": round(exec_t, 2),
+                                        "dist_cm": round(dist * 100.0, 1),
+                                        "near": what}})
                         with viewer.lock():
                             _draw_orb(viewer, ORB_COLORS["HALT"])
             else:

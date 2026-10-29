@@ -219,6 +219,36 @@ def measure_held_electronic(motion, graph, i: int) -> dict | None:
             "above": best[2]}
 
 
+def measure_held_object_property(motion, graph, i: int,
+                                 properties: list) -> dict | None:
+    """Closest held-origin gap to an object with one of `properties`.
+
+    Same horizontal AABB gap as measure_held_electronic, generalised
+    (R-02 vocabulary: fragile, ...). None when empty-handed or no match.
+    """
+    obj = motion["held"][i]
+    if obj is None:
+        return None
+    pt = carried_point(motion, graph, obj, i)
+    if pt is None:
+        return None
+    best = (None, float("inf"), False)
+    for oid, node in graph["objects"].items():
+        if oid == obj:
+            continue
+        if not set(properties) & set(node.get("properties", [])):
+            continue
+        epos = np.asarray(node["pos"], dtype=float)
+        ext = node.get("extent") or [0.0, 0.0, 0.0]
+        d = _aabb_xz_gap(pt, epos, ext)
+        if d < best[1]:
+            best = (oid, d, float(pt[2] - epos[2]) - ext[2] > 0.10)
+    if best[0] is None:
+        return None
+    return {"gap_cm": best[1] * 100.0, "obj": obj, "near": best[0],
+            "above": best[2]}
+
+
 def release_events(motion, graph) -> list[dict]:
     """held obj->None transitions with the release pose from the last hold."""
     out = []

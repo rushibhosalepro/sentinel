@@ -315,3 +315,21 @@ def test_invalid_plan_retries_with_error_text(monkeypatch):
     assert res["rounds"] == 1
     assert res["trace"][0].startswith("Round 1: ERROR")
     assert res["trace"][-1] == "Round 2: ALLOW"
+
+
+def test_verdict_rounds_logged(monkeypatch, tmp_path):
+    model, data = load_scene("kitchen")
+    _run(model, data, [_content("give_apple.json")], [_allow()],
+         monkeypatch)
+    with open(tmp_path / "events.jsonl") as f:
+        log = [json.loads(line) for line in f]
+    assert len(log) == 1
+    (e,) = log
+    assert e["kind"] == "verdict" and e["outcome"] == "ALLOW"
+    assert e["round"] == 1 and e["instruction"] == "test"
+    assert e["motion"].startswith("Motion:")
+    assert "apple" in e["graph"]["objects"]
+    assert set(e["closest"]) == {"fragile_cm", "fragile_obj",
+                                 "electronic_cm", "electronic_obj",
+                                 "person_cm", "person"}
+    assert e["closest"]["fragile_obj"] == "wine_glass"
