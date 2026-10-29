@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
-const WS_URL = 'ws://localhost:8000/ws'
+const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
 
 export default function App() {
   const [instruction, setInstruction] = useState('give me the knife')
@@ -9,14 +9,12 @@ export default function App() {
   const [image, setImage] = useState(null)
   const [boxes, setBoxes] = useState([])
   const [status, setStatus] = useState('idle')
-  const wsRef = useRef(null)
 
   useEffect(() => {
-    const ws = new WebSocket(WS_URL)
-    wsRef.current = ws
-    ws.onopen = () => setConnected(true)
-    ws.onclose = () => setConnected(false)
-    ws.onmessage = (msg) => {
+    let ws = null
+    let timer = null
+    let alive = true
+    function onMessage(msg) {
       const ev = JSON.parse(msg.data)
       if (ev.type === 'frame') {
         setImage(`data:image/jpeg;base64,${ev.image}`)
@@ -31,13 +29,28 @@ export default function App() {
         setStatus(`done: ${ev.status}`)
       }
     }
-    return () => ws.close()
+    function connect() {
+      if (!alive) return
+      ws = new WebSocket(WS_URL)
+      ws.onopen = () => setConnected(true)
+      ws.onclose = () => {
+        setConnected(false)
+        if (alive) timer = setTimeout(connect, 1000)
+      }
+      ws.onmessage = onMessage
+    }
+    connect()
+    return () => {
+      alive = false
+      clearTimeout(timer)
+      if (ws) ws.close()
+    }
   }, [])
 
   async function submit(e) {
     e.preventDefault()
     setStatus('planning…')
-    const r = await fetch('http://localhost:8000/instruction', {
+    const r = await fetch('/instruction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instruction }),

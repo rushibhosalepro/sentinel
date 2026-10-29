@@ -127,5 +127,53 @@ def test_runner_system_exit_keeps_server_alive():
         assert r.status_code == 202
 
 
+@pytest.mark.parametrize("origin", ["http://localhost:5173",
+                                   "http://127.0.0.1:5173"])
+def test_cors_preflight_allows_dev_server(origin):
+    app = create_app(runner=_run_plan_done)
+    with TestClient(app) as client:
+        r = client.options("/instruction", headers={
+            "Origin": origin, "Access-Control-Request-Method": "POST"})
+        assert r.status_code == 200
+        assert r.headers["access-control-allow-origin"] == origin
+
+
+def test_two_sockets_both_receive_same_frame():
+    frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+    def _run(instruction, sink, **kwargs):
+        sink(E.frame_event(E.encode_jpeg_b64(frame), [], "truth", 0.0))
+        sink(E.done_event("complete", {}))
+
+    app = create_app(runner=_run)
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws") as ws1, \
+            client.websocket_connect("/ws") as ws2:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        ev1, ev2 = ws1.receive_json(), ws2.receive_json()
+        assert ev1["type"] == ev2["type"] == "frame"
+        assert ev1["image"] == ev2["image"]
+        assert ws1.receive_json()["type"] == "done"
+        assert ws2.receive_json()["type"] == "done"
+
+
+def test_late_socket_gets_latest_plan_and_graph():
+    def _run(instruction, sink, **kwargs):
+        sink(E.plan_event([{"action": "stop", "args": {}}], 1))
+        sink(E.graph_event({"objects": [], "people": []}))
+        sink(E.done_event("complete", {}))
+
+    app = create_app(runner=_run)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws1:
+        assert client.post("/instruction",
+                           json={"instruction": "x"}).status_code == 202
+        assert [ws1.receive_json()["type"] for _ in range(3)] == [
+            "plan", "graph", "done"]
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws2:
+        assert [ws2.receive_json()["type"] for _ in range(2)] == [
+            "plan", "graph"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

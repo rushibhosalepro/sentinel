@@ -17,6 +17,7 @@ import queue
 import threading
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -49,8 +50,22 @@ def _envelope(run_id: int, event: dict) -> dict:
 
 def create_app(runner=run_loop_live) -> FastAPI:
     app = FastAPI(title="Sentinel dashboard")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     state = {"busy": False, "run_id": 0, "lock": threading.Lock(),
-             "events": queue.Queue()}
+             "subs": set(), "latest": {}}
+
+    def _publish(event: dict):
+        with state["lock"]:
+            if event["type"] in ("graph", "plan"):
+                state["latest"][event["type"]] = (state["run_id"], event)
+            subs = list(state["subs"])
+        for q in subs:
+            q.put(event)
 
     @app.get("/health")
     def health():
@@ -71,11 +86,11 @@ def create_app(runner=run_loop_live) -> FastAPI:
 
         def _run():
             try:
-                runner(body.instruction, state["events"].put, **kwargs)
+                runner(body.instruction, _publish, **kwargs)
             except SystemExit:
                 pass  # _run_headless emits done before raising
             except Exception as e:  # noqa: BLE001 - never kill the server
-                state["events"].put(done_event("error", {"error": str(e)}))
+                _publish(done_event("error", {"error": str(e)}))
             finally:
                 with state["lock"]:
                     state["busy"] = False
@@ -86,17 +101,27 @@ def create_app(runner=run_loop_live) -> FastAPI:
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
         await websocket.accept()
+        mine: queue.Queue = queue.Queue()
+        with state["lock"]:
+            state["subs"].add(mine)
+            catchup = [state["latest"][t] for t in ("plan", "graph")
+                       if t in state["latest"]]
         loop = asyncio.get_running_loop()
         try:
+            for rid, event in catchup:
+                await websocket.send_json(_envelope(rid, event))
             while True:
                 try:
                     event = await loop.run_in_executor(
-                        None, lambda: state["events"].get(timeout=1.0))
+                        None, lambda: mine.get(timeout=1.0))
                 except queue.Empty:
                     continue
                 await websocket.send_json(_envelope(state["run_id"], event))
         except WebSocketDisconnect:
             pass
+        finally:
+            with state["lock"]:
+                state["subs"].discard(mine)
 
     return app
 
