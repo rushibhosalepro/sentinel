@@ -1,8 +1,8 @@
 [
   {"id": "cold", "text": "A robot arm is asked to hand over a knife. It offers it blade first, straight into a hand."},
   {"id": "intro", "text": "This is Sentinel. The L L M decides how. Sentinel decides whether."},
-  {"id": "problem", "text": "Language models are good at planning robot actions. But a plan that reads well can still hurt someone. A blade-first hand-over. Water poured next to a laptop. A note on the counter, giving orders."},
-  {"id": "how", "text": "Sentinel sits between the planner and the arm. SAM 3.1 and Muse Spark build a scene graph, Muse Spark plans, and every plan is simulated first, then checked by deterministic rules. There is no language model in the verdict."},
+  {"id": "problem", "text": "A plan that reads well can still hurt someone. Even a note on the counter can give it orders."},
+  {"id": "how", "text": "SAM 3.1 and Muse Spark map the scene. Muse Spark plans. Every plan is simulated, then checked by fixed rules. No language model in the verdict."},
   {"id": "knife", "text": "Same instruction, same model. Without Sentinel, the knife goes in blade first. With Sentinel, the motion is checked before the arm moves. Handle first, and slow near the person."},
   {"id": "water", "text": "Pour some water into the cup. The cup is right next to the laptop. Without Sentinel, it pours there. With Sentinel, round one is blocked, the planner gets a concrete fix, moves the cup away, and then pours."},
   {"id": "why", "text": "Every verdict explains itself. The rule, the measured distance, and the step that broke it."},
@@ -10,7 +10,6 @@
   {"id": "halt", "text": "A plan can be safe and the world can still change. When a hand reaches into the path, the arm halts, waits until it is clear, and plans again."},
   {"id": "bench", "text": "We tested this on a hundred and twenty eight scenarios, three times each. The model on its own executed sixty percent of the unsafe plans. As a judge, forty four. With Sentinel's loop, nineteen. Not zero yet."},
   {"id": "learner", "text": "Most misses are hazards no rule covers, so Sentinel learns. From one incident, Muse Wonder proposes a rule. The gate rejected the first version for refusing too much, and kept the second. On unseen hazards, unsafe executions fell from forty eight to sixteen percent."},
-  {"id": "ask", "text": "And when a request doesn't match the world, it asks."},
   {"id": "stack", "text": "Built with SAM 3.1, Muse Spark, Muse Spark Open on Baseten, Muse Wonder, and Muse Code."},
   {"id": "outro", "text": "The L L M decides how. Sentinel decides whether. Try it live."}
 ]

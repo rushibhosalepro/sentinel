@@ -34,8 +34,9 @@ HOW = _TL["how"]["start"]
 DEMOS = _TL["knife"]["start"]
 BENCH = _TL["bench"]["start"]
 LEARN = _TL["learner"]["start"]
-ASK = _TL["ask"]["start"]
-OUTRO = _TL["stack"]["start"]
+OUTRO_START = _TL["stack"]["start"]
+ASK = OUTRO_START - 3.0  # short breakdown before the credits
+OUTRO = OUTRO_START
 END = _TL["outro"]["start"] + _TL["outro"]["dur"]
 
 MINOR = [(50, 53, 57), (46, 50, 53), (53, 57, 60), (48, 52, 55)]  # Dm Bb F C

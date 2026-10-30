@@ -8,7 +8,6 @@ import {
   staticFile,
 } from "remotion";
 import {
-  Ask,
   Bench,
   Cold,
   Halt,
@@ -40,7 +39,6 @@ const SCENES: Record<string, React.FC> = {
   halt: Halt,
   bench: Bench,
   learner: Learner,
-  ask: Ask,
   stack: Stack,
   outro: Outro,
 };

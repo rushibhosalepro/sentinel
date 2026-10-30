@@ -26,3 +26,4 @@ bench/first_run/
 # remotion video project
 video/node_modules/
 video/out/
+video/public/music.wav
