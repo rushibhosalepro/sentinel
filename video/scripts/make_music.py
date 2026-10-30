@@ -19,12 +19,24 @@ SR = 44100
 BPM = 112.0
 BEAT = 60.0 / BPM
 BAR = 4 * BEAT
-LENGTH_S = 178.0
+LENGTH_S = 181.0
 OUT = Path(__file__).resolve().parent.parent / "public" / "music.wav"
 
-# Scene starts in seconds (keep in sync with src/Root.tsx).
-INTRO, PROBLEM, HOW, DEMOS, ASK, LEARN, BENCH, OUTRO, END = (
-    0.0, 5.0, 16.0, 35.0, 109.0, 118.0, 140.0, 158.0, 176.0)
+# Section starts come from src/timeline.json (built by voice_timing.py).
+import json as _json
+
+_TL = {s["id"]: s for s in _json.loads(
+    (Path(__file__).resolve().parent.parent / "src" / "timeline.json")
+    .read_text(encoding="utf-8"))}
+INTRO = 0.0
+PROBLEM = _TL["problem"]["start"]
+HOW = _TL["how"]["start"]
+DEMOS = _TL["knife"]["start"]
+BENCH = _TL["bench"]["start"]
+LEARN = _TL["learner"]["start"]
+ASK = _TL["ask"]["start"]
+OUTRO = _TL["stack"]["start"]
+END = _TL["outro"]["start"] + _TL["outro"]["dur"]
 
 MINOR = [(50, 53, 57), (46, 50, 53), (53, 57, 60), (48, 52, 55)]  # Dm Bb F C
 MAJOR = [(53, 57, 60), (48, 52, 55), (50, 53, 57), (46, 50, 53)]  # F C Dm Bb
@@ -210,23 +222,25 @@ def main() -> None:
     riser(DEMOS, 6.0, 0.12)
     impact(DEMOS, 0.4)
 
-    # Demos: confident groove with the hook.
-    groove(DEMOS, ASK, prog=MAJOR, drums=1.0, lead=0.040, arp=0.025,
+    # Demos (knife, water, why, sticky, halt): confident groove + hook.
+    groove(DEMOS, BENCH - 5.0, prog=MAJOR, drums=1.0, lead=0.040, arp=0.025,
            bass_g=0.10, pad_g=0.028)
-
-    # ASK: breakdown, pads + soft arp only.
-    groove(ASK, LEARN, prog=MAJOR, drums=0.0, lead=0.0, arp=0.030,
-           bass_g=0.0, pad_g=0.036)
-
-    # Learner: rebuild (bass + half drums), riser into the results.
-    groove(LEARN, BENCH, prog=MAJOR, drums=0.6, lead=0.0, arp=0.035,
-           bass_g=0.09, pad_g=0.030)
+    groove(BENCH - 5.0, BENCH, prog=MAJOR, drums=0.0, lead=0.0, arp=0.030,
+           bass_g=0.06, pad_g=0.030)
     riser(BENCH, 5.0, 0.12)
     impact(BENCH, 0.45)
 
     # Benchmark: fullest section.
-    groove(BENCH, OUTRO, prog=MAJOR, drums=1.0, lead=0.048, arp=0.030,
+    groove(BENCH, LEARN, prog=MAJOR, drums=1.0, lead=0.048, arp=0.030,
            bass_g=0.11, pad_g=0.032)
+
+    # Learner: steady rebuild (half drums, no lead).
+    groove(LEARN, ASK, prog=MAJOR, drums=0.6, lead=0.0, arp=0.035,
+           bass_g=0.09, pad_g=0.030)
+
+    # ASK: breakdown, pads + soft arp only.
+    groove(ASK, OUTRO, prog=MAJOR, drums=0.0, lead=0.0, arp=0.030,
+           bass_g=0.0, pad_g=0.036)
 
     # Outro: resolve on F with a bell motif.
     impact(OUTRO, 0.25)
