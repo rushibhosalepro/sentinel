@@ -705,7 +705,10 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   skip_check: bool = False, reviewer=None,
                   passive_monitor: bool = False,
                   cost_log=None, verdict_final: bool = False,
-                  repeat: int | None = None) -> None:
+                  repeat: int | None = None,
+                  sentinel: bool = True,
+                  planned_steps: list | None = None,
+                  gate=None, record: bool = False) -> dict | None:
     """One instruction, no window: execute and save an mp4 (verification).
 
     Runs the same worker (with the L-06 replan loop) as the viewer loop,
@@ -722,12 +725,27 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     refuse a plan, and passive_monitor records would-HALTs without
     freezing. repeat tags the job for the bench prompt cache (B-06);
     None leaves the worker thread's repeat context untouched (live).
+    Shared-executor knobs (D-14, split lane A): planned_steps skips the
+    planner worker and runs the given steps; sentinel=False switches
+    off check/feedback/replan (no worker), the safe hand-over turn/slow
+    (S-07 unsafe build), and the live HALT monitor (preflight.py is
+    unwired everywhere, so there is nothing to switch off). The two
+    always pair: planned runs are check-free, worker runs are checked.
+    gate (a split StartGate) releases both lanes into execution
+    together; record captures the executed qpos trajectory. Returns
+    the run result (takers, duration, motion, trajectory, live sim);
+    the worker path also emits the done event as before.
     """
     import imageio.v2 as imageio
     from pathlib import Path
 
     from sim.world import HEIGHT, WIDTH
 
+    if planned_steps is None and not sentinel:
+        raise ValueError("sentinel=False needs planned_steps")
+    if planned_steps is not None and sentinel:
+        raise ValueError(
+            "planned_steps bypasses Sentinel: pass sentinel=False")
     model, data = load_scene("kitchen")
     props = load_props()
     if preset is not None:
@@ -744,7 +762,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                 if mid >= 0:
                     data.mocap_pos[mid] += np.array(shift, dtype=float)
         mujoco.mj_forward(model, data)
-    halt_params = rule_params()
+    halt_params = rule_params() if sentinel else None
     positions, perceived, quarantine = (None, None, {})
     if perception == "sam":
         try:
@@ -765,8 +783,10 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     home_quat = data.xquat[hand_id].copy()
     jobs: queue.Queue = queue.Queue()
     results: queue.Queue = queue.Queue()
-    threading.Thread(target=_planner_worker, args=(model, jobs, results),
-                     daemon=True).start()
+    if planned_steps is None:
+        threading.Thread(target=_planner_worker,
+                         args=(model, jobs, results),
+                         daemon=True).start()
     run_id = f"run-{uuid.uuid4().hex[:6]}"
     job = {"gen": 0, "instruction": instruction, "facts": facts,
            "data": data, "valid_ids": set(props["objects"]),
@@ -779,11 +799,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
            "skip_check": skip_check, "reviewer": reviewer,
            "cost_log": cost_log, "verdict_final": verdict_final,
            "repeat": repeat}
-    if attack == "scene-text":
+    if attack == "scene-text" and planned_steps is None:
         from perception.reader import stage_attack_frame
         job["attack_frame"] = stage_attack_frame(model, data, props)
         print(f"attack staged: {job['attack_frame'].name}")
-    jobs.put(job)
+    if planned_steps is None:
+        jobs.put(job)
 
     def emit(event):
         if sink is not None:
@@ -918,7 +939,35 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             raise SystemExit(1)
         return steps, script, res["rounds"], trace, ask, rows
 
-    _, script, rounds, trace, ask, plan_rows = take_result()
+    if planned_steps is not None:
+        from dashboard.events import done_event, plan_event
+        from dashboard.split_steps import (
+            describe_plan,
+            object_tops,
+            people_xy,
+            script_turned_hids,
+        )
+
+        steps = planned_steps
+        script, err = build_execution_script(
+            model, data, steps, home_pos, home_quat, instruction,
+            sentinel=sentinel)
+        if err is not None:
+            print(f"{err} (not moving)")
+            jobs.put(None)
+            emit(done_event("error", {"error": err}))
+            raise SystemExit(1)
+        plan_rows = describe_plan(
+            steps, props, object_tops(model, data, props),
+            people_xy(model, data),
+            turned=script_turned_hids(script),
+            sentinel_notes=sentinel)
+        emit(plan_event(steps, 0, rows=plan_rows))
+        rounds, trace, ask = 0, [], None
+    else:
+        _, script, rounds, trace, ask, plan_rows = take_result()
+    if gate is not None:
+        gate.arrive()
     dt = 1.0 / fps
     out = Path(out_path)
     if render:
@@ -943,6 +992,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                     quality=8) if render \
         else nullcontext(None)
     cur_step = None
+    traj = []
     try:
         with writer_ctx as writer:
             while seg_i < len(segments):
@@ -1154,6 +1204,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                         encode_jpeg_b64(video_frame), boxes,
                         "sam" if perception == "sam" else "truth", vnow,
                         step=cur_step))
+                if record:
+                    traj.append(np.asarray(data.qpos).copy())
                 frame_i += 1
                 vnow += dt
                 data.time = vnow
@@ -1171,7 +1223,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
               f"hand-object gap {gap * 100:.1f} cm")
         took[obj] = {"taken": ok, "gap_cm": round(gap * 100.0, 1)}
     print(f"saved {out}" if render else "done (render off)")
-    if sink is not None:
+    result = {"takers": took, "duration_s": round(vnow, 2),
+              "rounds": rounds, "trace": trace, "ask": ask,
+              "held_at_end": held_now, "motion": script["motion"],
+              "trajectory": traj if record else None,
+              "model": model, "data": data}
+    if sink is not None and planned_steps is None:
         from dashboard.events import done_event
         from dashboard.split_steps import lane_b_footer
         emit(done_event("complete", {
@@ -1179,6 +1236,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             "duration_s": round(vnow, 2), "ask": ask,
             "footer": lane_b_footer("ALLOW", plan_rows, [], props),
             "motion": _motion_summary(script["motion"])}))
+    return result
 
 
 def main() -> None:

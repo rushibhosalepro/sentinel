@@ -218,6 +218,34 @@ def render_split_idle(preset: str, idle: dict) -> dict:
     return frame_event(encode_jpeg_b64(rgb), [], "truth", 0.0)
 
 
+class StartGate:
+    """One-shot 2-party execution gate: split lanes start together.
+
+    Each lane calls arrive() once its plan is ready; both are released
+    into execution at the same moment. abort() (the lane wrapper's
+    finally) releases a lone waiter when the partner dies, errors, or
+    never executes (BLOCK/ASK-denied); the 300 s timeout bounds a
+    hung planner the same way.
+    """
+
+    def __init__(self):
+        self._barrier = threading.Barrier(2)
+
+    def arrive(self) -> bool:
+        """Wait for the partner lane; True when released together."""
+        try:
+            self._barrier.wait(timeout=300)
+            return True
+        except threading.BrokenBarrierError:
+            return False
+
+    def abort(self):
+        try:
+            self._barrier.abort()
+        except threading.BrokenBarrierError:
+            pass
+
+
 def create_app(runner=run_loop_live, owner_token: str | None = None,
                idle_render: bool = False, split_naive=None,
                split_live=None, rate_limit_per_hour: int | None = 10,
@@ -540,14 +568,16 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         """Lane A (naive) + lane B (Sentinel) in parallel; slot held."""
         tag = f"{spec['name']}_r{run_id}"
         out = REPO_ROOT / "out"
+        gate = StartGate()
         lanes = (
             ("A", split_naive,
              {"preset": spec["preset"], "attack": spec["attack"],
               "out_path": str(out / f"split_A_{tag}.mp4"), "tag": tag,
-              "fps": 30}),
+              "fps": 30, "gate": gate}),
             ("B", split_live,
              {"preset": spec["preset"], "attack": spec["attack"],
-              "perception": "truth", "planner_model": model}),
+              "perception": "truth", "planner_model": model,
+              "gate": gate}),
         )
 
         def _lane(lane, fn, kwargs):
@@ -570,6 +600,8 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                     _publish_split(
                         lane, run_id,
                         done_event("error", {"error": str(e)}))
+                finally:
+                    gate.abort()  # release a partner that may wait
 
             return go
 

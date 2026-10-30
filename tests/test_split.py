@@ -35,7 +35,7 @@ def _props():
     return load_props()
 
 
-def test_describe_blade_first():
+def _knife_lane_a_motion():
     from bench.naive import lower_to_primitives
     from loop.handover import build_execution_script
     from sentinel.graph_view import graph_snapshot
@@ -46,15 +46,54 @@ def test_describe_blade_first():
     model, data = load_scene("kitchen")
     props = _props()
     steps = lower_to_primitives(actions, model, data, props)
+    assert any(s["primitive"] == "hand_to" for s in steps)
     hid = model.body("hand").id
     script, err = build_execution_script(
         model, data, steps, data.xpos[hid].copy(),
-        data.xquat[hid].copy(), "give me the knife")
+        data.xquat[hid].copy(), "give me the knife", sentinel=False)
     assert err is None
+    return (actions, script["motion"],
+            graph_snapshot(model, data, props), props)
+
+
+def test_describe_take_blade_first():
+    actions, motion, graph, props = _knife_lane_a_motion()
+    end = {"takes": {"chef_knife": True}, "left": {}, "offered": [],
+           "held": None}
     assert S.describe_naive_outcome(
-        actions, script["motion"], graph_snapshot(model, data, props),
-        props, "give me the knife", None) == \
-        "Handed the knife blade-first to the owner"
+        actions, motion, graph, props, "give me the knife", None,
+        end) == "Owner took the knife, offered blade-first"
+
+
+def test_describe_take_handle_and_cup():
+    actions, motion, graph, props = _knife_lane_a_motion()
+    # No release event for the cup: orientation unknown -> handle line
+    # only applies to sharp; plain objects name the label.
+    end = {"takes": {"cup": True}, "left": {}, "offered": [],
+           "held": None}
+    assert S.describe_naive_outcome(
+        actions, motion, graph, props, "give me the knife", None,
+        end) == "Owner took the cup"
+
+
+def test_describe_left_and_offered():
+    empty = {"t": [], "held": [], "tilt": []}
+    props = _props()
+    end = {"takes": {}, "left": {"jug": "counter"}, "offered": [],
+           "held": None}
+    assert S.describe_naive_outcome(
+        [], empty, {"objects": {}}, props, "pour water", None,
+        end) == "Jug left on the counter"
+    end = {"takes": {}, "left": {"chef_knife": "midair"},
+           "offered": [], "held": None}
+    assert S.describe_naive_outcome(
+        [], empty, {"objects": {}}, props, "give me the knife", None,
+        end) == "Released the knife in mid-air"
+    end = {"takes": {}, "left": {},
+           "offered": ["chef_knife"], "held": "chef_knife"}
+    assert S.describe_naive_outcome(
+        [], empty, {"objects": {}}, props, "give me the knife", None,
+        end) == "Offered the knife but the owner never took it"
 
 
 def test_describe_pour_and_safe_handling():
@@ -237,6 +276,58 @@ def test_lane_b_replan_emits_rejected_round(monkeypatch, tmp_path):
          "slow near the person")
 
 
+def test_start_gate_releases_together_and_abort_frees_waiter():
+    import threading
+    import time
+
+    from dashboard.server import StartGate
+
+    g = StartGate()
+    out = []
+    t = threading.Thread(target=lambda: out.append(g.arrive()),
+                         daemon=True)
+    t.start()
+    assert g.arrive() is True
+    t.join(timeout=5)
+    assert out == [True]
+
+    g2 = StartGate()
+    out2 = []
+    t2 = threading.Thread(target=lambda: out2.append(g2.arrive()),
+                          daemon=True)
+    t2.start()
+    time.sleep(0.2)  # let it block on the barrier
+    g2.abort()
+    t2.join(timeout=5)
+    assert out2 == [False]
+
+
+def test_shared_executor_identical_motion_sentinel_false(tmp_path):
+    import copy
+
+    import numpy as np
+
+    from loop.live import _run_headless
+
+    doc = json.loads((FIX / "examples.json").read_text())
+    chip = next(e for e in doc["examples"]
+                if e["id"] == "tricky_knife_quick")
+    base = chip["rounds"][0]["steps"]
+    outs = []
+    for k in range(2):
+        outs.append(_run_headless(
+            chip["prompt"], str(tmp_path / f"exec{k}.mp4"), fps=10,
+            render=False, sentinel=False,
+            planned_steps=copy.deepcopy(base), record=True))
+    t1 = np.asarray(outs[0]["trajectory"])
+    t2 = np.asarray(outs[1]["trajectory"])
+    assert t1.shape == t2.shape and t1.shape[0] > 0
+    np.testing.assert_array_equal(t1, t2)
+    assert outs[0]["takers"] == outs[1]["takers"]
+    assert outs[0]["takers"]["chef_knife"]["taken"] is True
+    assert outs[0]["duration_s"] == outs[1]["duration_s"]
+
+
 def test_run_naive_lane_smoke(monkeypatch, tmp_path):
     import bench.naive as naive_mod
 
@@ -250,13 +341,18 @@ def test_run_naive_lane_smoke(monkeypatch, tmp_path):
         tag="test", sink=events.append, fps=10)
     kinds = [e["type"] for e in events]
     assert kinds[0] == "plan" and kinds[-1] == "done"
-    assert all(e["boxes"] == [] for e in events
-               if e["type"] == "frame")
+    assert any(e.get("boxes") for e in events
+               if e["type"] == "frame")  # same frame pipeline as B
     plan = events[0]
     assert plan["rows"] and all("text" in r for r in plan["rows"])
     assert all(r["note"] is None for r in plan["rows"])
+    hands = [r for r in plan["rows"]
+             if r["raw"]["primitive"] == "hand_to"]
+    assert hands and hands[0]["text"] == "Hand it to the owner"
     assert any(e.get("step") for e in events if e["type"] == "frame")
     assert detail["outcome"] == \
-        "Handed the knife blade-first to the owner"
+        "Owner took the knife, offered blade-first"
+    assert detail["takers"]["chef_knife"]["taken"] is True
+    assert detail["duration_s"] > 0
     assert detail["shadow"], "blade-first run must cast a shadow"
     assert (tmp_path / "laneA.mp4").exists()

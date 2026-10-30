@@ -287,7 +287,7 @@ def test_shadow_notes_flag_blade_first():
     hid = model.body("hand").id
     script, err = build_execution_script(
         model, data, steps, data.xpos[hid].copy(),
-        data.xquat[hid].copy(), "give me the knife")
+        data.xquat[hid].copy(), "give me the knife", sentinel=False)
     assert err is None
     notes = shadow_notes(script["motion"],
                          graph_snapshot(model, data, props),

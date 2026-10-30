@@ -138,8 +138,13 @@ def split_segments(steps: list[dict]) -> list[tuple[str, list | dict]]:
 
 
 def expand_hand_to(model, data, step: dict, obj: str, home_pos, home_quat,
-                   instruction: str) -> list[dict]:
-    """Static expansion of one hand_to against the current live state."""
+                   instruction: str,
+                   sentinel: bool = True) -> list[dict]:
+    """Static expansion of one hand_to against the current live state.
+
+    sentinel=False is the S-07 unsafe variant: no slow-down, no
+    handle-first turn; the offer/wait/transfer/retract/retreat stays.
+    """
     hid = step["id"]
     serves = step.get("serves_instruction", instruction)
     grip_id = model.body(ROBOT_HAND).id
@@ -148,11 +153,14 @@ def expand_hand_to(model, data, step: dict, obj: str, home_pos, home_quat,
     hand_pos = data.xpos[model.body(HAND_BODY).id].copy()
     target = offer_target(grip_pos, hand_pos)
     offer_quat = grip_quat
-    sub = [{"id": f"{hid}:slow",
-            "primitive": "set_speed", "args": {"speed": "slow"},
-            "serves_instruction": serves,
-            "why": "slow for the hand-over"}]
-    if obj == KNIFE_BODY and blade_faces_person(model, data):
+    sub = []
+    if sentinel:
+        sub.append({"id": f"{hid}:slow",
+                    "primitive": "set_speed",
+                    "args": {"speed": "slow"},
+                    "serves_instruction": serves,
+                    "why": "slow for the hand-over"})
+    if sentinel and obj == KNIFE_BODY and blade_faces_person(model, data):
         turned = (Rotation.from_euler("z", 180, degrees=True)
                   * Rotation.from_matrix(quat_wxyz_to_mat(grip_quat)))
         offer_quat = mat_to_quat_wxyz(turned.as_matrix())
@@ -182,11 +190,12 @@ def _sample_index(sample_steps: list[str], step_id: str) -> int:
 
 def build_live_handover(model, data, step: dict, obj: str, home_pos,
                         home_quat, instruction: str,
-                        timeout: float = HANDOVER_TIMEOUT) -> LiveHandover:
+                        timeout: float = HANDOVER_TIMEOUT,
+                        sentinel: bool = True) -> LiveHandover:
     """Dry-run one hand_to expansion; take resolves live during stepping."""
     hid = step["id"]
     sub = expand_hand_to(model, data, step, obj, home_pos, home_quat,
-                         instruction)
+                         instruction, sentinel=sentinel)
     motion, frames, times = rollout_frames(
         model, data, sub, derived_from=f"live:{hid}", initial_held=obj)
     rel_idx = _sample_index(motion["sample_steps"], f"{hid}:release")
@@ -284,14 +293,16 @@ def concat_motions(motions: list[dict]) -> dict:
 
 def build_execution_script(model, data, steps: list[dict], home_pos,
                            home_quat, instruction: str,
-                           present=frozenset({"owner"})):
+                           present=frozenset({"owner"}),
+                           sentinel: bool = True):
     """Dry-run segments left-to-right off an evolved scratch.
 
     Returns (script, None) or (None, why). Each script entry is
     ("prims", {motion, frames, times}) or ("handover", LiveHandover
     template bound to `data`). Hand-overs are pre-played on the scratch
     so later segments start from the true end state; a timeout ends the
-    script (the live run reports "not taken").
+    script (the live run reports "not taken"). sentinel=False builds
+    the S-07 unsafe hand-over (no slow, no handle-first turn).
     """
     script: list[tuple] = []
     scratch = mujoco.MjData(model)
@@ -322,7 +333,7 @@ def build_execution_script(model, data, steps: list[dict], home_pos,
             try:
                 template = build_live_handover(
                     model, scratch, payload, held, home_pos, home_quat,
-                    instruction)
+                    instruction, sentinel=sentinel)
             except (PrimitiveError, HandoverError) as e:
                 return None, f"cannot build hand-over: {e}"
             preview = template.fresh(scratch)

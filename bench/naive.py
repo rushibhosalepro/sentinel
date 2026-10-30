@@ -3,8 +3,9 @@
 The naive model sees the front-camera image and the instruction and
 returns semantic skills (grasp / hand_to / pour_into / release /
 move_home). It gets NO scene graph (no positions, properties, or
-quarantine) and its motion runs with NO Sentinel check, NO preflight,
-and NO monitor: whatever it says, executes.
+quarantine) and its motion runs through the shared loop.live
+executor with sentinel=False: NO check, NO replan, NO HALT monitor,
+S-07 unsafe hand-over (no turn/slow). Whatever it says, executes.
 
 Mobility harness (documented cheat, by design): skills lower to §4
 primitives using TRUE positions, so the baseline isolates JUDGMENT,
@@ -32,7 +33,6 @@ import hashlib
 import json
 from pathlib import Path
 
-import mujoco
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -44,9 +44,7 @@ from perception.reader import stage_attack_frame
 from planner.model_client import chat as model_chat
 from planner.model_client import get_client
 from sim.geometry import body_aabb
-from sim.world import OUT_DIR, RENDER_LOCK, load_scene
-from sim.world import HEIGHT as VIDEO_H
-from sim.world import WIDTH as VIDEO_W
+from sim.world import OUT_DIR, load_scene
 
 CACHE_DIR = OUT_DIR.parent / "cache"
 DOWN = [0.0, 1.0, 0.0, 0.0]
@@ -214,10 +212,23 @@ def lower_to_primitives(actions: list, model, data,
                           "serves_instruction": why, "why": why})
             steps.append(_move(nxt(), (x, y, 0.30), why, "lift"))
         elif skill == "hand_to":
-            steps.append(_move(nxt(), NAIVE_HANDOFF, why,
-                               f"shove toward {target} (no wait/turn)"))
-            steps.append({"id": nxt(), "primitive": "release", "args": {},
-                          "serves_instruction": why, "why": why})
+            if target == "owner":
+                # The real primitive: the shared executor
+                # (sentinel=False) offers WITHOUT the safe turn/slow,
+                # and the owner takes it (S-07 unsafe). Judges compare
+                # with lane B.
+                steps.append({"id": nxt(), "primitive": "hand_to",
+                              "args": {"person": target},
+                              "serves_instruction": why, "why": why})
+            else:
+                # No visitor body in the sim: legacy dumb shove and
+                # early release (unchanged behaviour).
+                steps.append(_move(
+                    nxt(), NAIVE_HANDOFF, why,
+                    f"shove toward {target} (no wait/turn)"))
+                steps.append({"id": nxt(), "primitive": "release",
+                              "args": {},
+                              "serves_instruction": why, "why": why})
         elif skill == "pour_into":
             bid = model.body(target).id
             x, y = float(data.xpos[bid][0]), float(data.xpos[bid][1])
@@ -239,56 +250,6 @@ def lower_to_primitives(actions: list, model, data,
     steps.append({"id": nxt(), "primitive": "stop", "args": {},
                   "serves_instruction": "done", "why": "done"})
     return steps
-
-
-def play_prims(model, data, script: dict, out_path: Path,
-               fps: int = 30, sink=None) -> None:
-    """Execute prim-only segments kinematically (no monitor, no checks).
-
-    `sink` (D-07 lane A) receives a clean frame_event (no boxes) every
-    3rd frame. Renderer create/close stay under RENDER_LOCK: split
-    lanes render in parallel threads.
-    """
-    import imageio.v2 as imageio
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with RENDER_LOCK:
-        renderer = mujoco.Renderer(model, height=VIDEO_H, width=VIDEO_W)
-    try:
-        frame_i = 0
-        with imageio.get_writer(out_path, fps=fps, codec="libx264",
-                                quality=8) as writer:
-            for kind, payload in script["segments"]:
-                assert kind == "prims", f"naive cannot run {kind}"
-                frames, times = payload["frames"], payload["times"]
-                subs = (payload.get("motion") or {}).get(
-                    "sample_steps") or []
-                n = max(int(float(times[-1]) * fps), 1)
-                for i in range(n):
-                    tau = min(i / fps, float(times[-1]))
-                    idx = min(max(int(np.searchsorted(
-                        times, tau, side="right") - 1), 0),
-                        len(frames) - 1)
-                    data.qpos[:] = frames[idx]
-                    mujoco.mj_forward(model, data)
-                    renderer.update_scene(data, camera="demo")
-                    img = renderer.render()
-                    writer.append_data(img)
-                    if sink is not None and frame_i % 3 == 0:
-                        from dashboard.events import (
-                            encode_jpeg_b64,
-                            frame_event,
-                        )
-                        sink(frame_event(
-                            encode_jpeg_b64(img), [], "truth",
-                            frame_i / fps,
-                            step=subs[idx] if idx < len(subs)
-                            else None))
-                    frame_i += 1
-    finally:
-        with RENDER_LOCK:
-            renderer.close()
-    print(f"saved {out_path}")
 
 
 SCENARIOS = {
@@ -318,13 +279,20 @@ def run_scenario(name: str, refresh: bool = False) -> Path:
         print(f"  {a['skill']} {a.get('target', '')}  # {a['why']}")
     steps = lower_to_primitives(actions, model, data, props)
     hand_id = model.body("hand").id
-    script, err = build_execution_script(
+    _, err = build_execution_script(
         model, data, steps, data.xpos[hand_id].copy(),
-        data.xquat[hand_id].copy(), instruction)
+        data.xquat[hand_id].copy(), instruction, sentinel=False)
     if err is not None:
         raise RuntimeError(f"naive motion failed to build: {err}")
     out = OUT_DIR / f"naive_{name}.mp4"
-    play_prims(model, data, script, out)
+    from loop.live import _run_headless
+
+    preset = None
+    if name == "water":
+        preset = "cup_next_to_laptop"
+    _run_headless(instruction, str(out),
+                  preset=preset, sentinel=False,
+                  planned_steps=steps)
     return out
 
 

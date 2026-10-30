@@ -51,11 +51,23 @@ def test_lower_grasp_uses_truth_top():
     assert abs(steps[2]["args"]["pose"][0] - -0.16) < 1e-9
 
 
-def test_lower_hand_to_is_dumb():
-    # No rotation primitives, no wait: a shove + early release.
+def test_lower_hand_to_owner_uses_primitive():
+    # The shared executor (sentinel=False) offers unsafely and the
+    # owner takes it; no dumb shove in the lowering anymore.
     model, data = load_scene("kitchen")
     steps = lower_to_primitives(
         [{"skill": "hand_to", "target": "owner", "why": "give"}],
+        model, data, load_props())
+    prims = [s["primitive"] for s in steps]
+    assert prims == ["move_to", "hand_to", "stop"]
+    assert steps[1]["args"] == {"person": "owner"}
+
+
+def test_lower_hand_to_visitor_keeps_dumb_shove():
+    # No visitor body in the sim: shove + early release, as before.
+    model, data = load_scene("kitchen")
+    steps = lower_to_primitives(
+        [{"skill": "hand_to", "target": "visitor", "why": "give"}],
         model, data, load_props())
     prims = [s["primitive"] for s in steps]
     assert prims == ["move_to", "move_to", "release", "stop"]

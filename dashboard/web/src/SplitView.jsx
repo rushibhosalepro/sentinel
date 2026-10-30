@@ -110,6 +110,9 @@ export default function SplitView() {
   const [rejectedB, setRejectedB] = useState([])
   const [curA, setCurA] = useState(null)
   const [curB, setCurB] = useState(null)
+  const [tA, setTA] = useState(null)
+  const [tB, setTB] = useState(null)
+  const [showMore, setShowMore] = useState(false)
   const [doneA, setDoneA] = useState(null)
   const [roundsB, setRoundsB] = useState({})
   const [haltsB, setHaltsB] = useState([])
@@ -131,6 +134,8 @@ export default function SplitView() {
     setRejectedB([])
     setCurA(null)
     setCurB(null)
+    setTA(null)
+    setTB(null)
     setDoneA(null)
     setRoundsB({})
     setHaltsB([])
@@ -169,6 +174,7 @@ export default function SplitView() {
         if (ev.type === 'frame') {
           setImageA(`data:image/jpeg;base64,${ev.image}`)
           if (ev.step !== undefined) setCurA(ev.step)
+          if (typeof ev.t === 'number') setTA(ev.t)
         } else if (ev.type === 'plan') {
           setPlanA(ev.rows || [])
         } else if (ev.type === 'done') {
@@ -182,6 +188,7 @@ export default function SplitView() {
       if (ev.type === 'frame') {
         setImageB(`data:image/jpeg;base64,${ev.image}`)
         if (ev.step !== undefined) setCurB(ev.step)
+        if (typeof ev.t === 'number') setTB(ev.t)
       } else if (ev.type === 'plan') {
         setPlanB(ev.rows || [])
       } else if (ev.type === 'rejected') {
@@ -263,14 +270,29 @@ export default function SplitView() {
     setHint(chip.hint)
   }
 
-  async function runBoth(e) {
-    e.preventDefault()
+  function runFeatured(card) {
+    setPreset(card.preset)
+    setInstruction(card.prompt)
+    setHint(card.watch || card.hint)
+    runBoth(null, card.preset, card.prompt)
+  }
+
+  async function runBoth(e, presetOverride, textOverride) {
+    if (e) e.preventDefault()
     clearRun()
     setQueued(null)
     setStatus('running both lanes…')
     setRunning(true)
-    const text = instruction.trim()
-    const body = text ? { preset, instruction: text } : { preset }
+    const usePreset = presetOverride || preset
+    const raw =
+      textOverride !== undefined ? textOverride : instruction
+    const text = raw.trim()
+    if (presetOverride) {
+      fetch(`/split-scene?preset=${usePreset}`).catch(() => {})
+    }
+    const body = text
+      ? { preset: usePreset, instruction: text }
+      : { preset: usePreset }
     const r = await fetch('/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -337,28 +359,63 @@ export default function SplitView() {
           </span>
         </p>
       </form>
-      {CHIP_GROUPS.map(
-        ([group, label]) =>
-          examples.some((c) => c.group === group) && (
-            <p key={group} className="row chips">
-              <span className="chip-group">{label}:</span>
-              {examples
-                .filter((c) => c.group === group)
-                .map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className="chip"
-                    onClick={() => pickChip(c)}
-                    disabled={running}
-                    title={c.hint}
-                  >
-                    {c.prompt}
-                  </button>
-                ))}
-            </p>
-          ),
+      {examples.some((c) => c.featured) && (
+        <div className="featured">
+          {examples
+            .filter((c) => c.featured)
+            .map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="feature-card"
+                onClick={() => runFeatured(c)}
+                disabled={running}
+                title="Fill in and run both lanes"
+              >
+                <span className="feature-prompt">{c.prompt}</span>
+                <span className="feature-watch">
+                  watch for: {c.watch || c.hint}
+                </span>
+              </button>
+            ))}
+        </div>
       )}
+      {examples.some((c) => !c.featured) && (
+        <p className="row">
+          <button
+            type="button"
+            className="more-toggle"
+            onClick={() => setShowMore((v) => !v)}
+          >
+            {showMore
+              ? 'Hide examples'
+              : `More examples (${examples.filter((c) => !c.featured).length})`}
+          </button>
+        </p>
+      )}
+      {showMore &&
+        CHIP_GROUPS.map(
+          ([group, label]) =>
+            examples.some((c) => !c.featured && c.group === group) && (
+              <p key={group} className="row chips">
+                <span className="chip-group">{label}:</span>
+                {examples
+                  .filter((c) => !c.featured && c.group === group)
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="chip"
+                      onClick={() => pickChip(c)}
+                      disabled={running}
+                      title={c.hint}
+                    >
+                      {c.prompt}
+                    </button>
+                  ))}
+              </p>
+            ),
+        )}
       {hint && (
         <p className="hint">
           watch: {hint}
@@ -366,7 +423,7 @@ export default function SplitView() {
       )}
       <p className="status">{status}</p>
       <div className="lanes">
-        <div className="lane">
+        <div className={doneA && !doneB ? 'lane lane-dimmed' : 'lane'}>
           <p>
             <span
               className="badge"
@@ -374,7 +431,8 @@ export default function SplitView() {
             >
               A · WITHOUT SENTINEL
             </span>{' '}
-            <span className="dim">same Muse Spark, no Sentinel</span>
+            <span className="dim">same Muse Spark, no Sentinel</span>{' '}
+            {tA !== null && <span className="elapsed">{tA.toFixed(1)}s</span>}
           </p>
           {imageA ? (
             <img src={imageA} alt="lane A camera" />
@@ -394,7 +452,7 @@ export default function SplitView() {
             {outcomeA || 'ready: same Muse Spark, no Sentinel'}
           </p>
         </div>
-        <div className="lane">
+        <div className={doneB && !doneA ? 'lane lane-dimmed' : 'lane'}>
           <p>
             <span
               className="badge"
@@ -402,7 +460,8 @@ export default function SplitView() {
             >
               B · WITH SENTINEL
             </span>{' '}
-            <span className="dim">Muse Spark × Sentinel loop</span>
+            <span className="dim">Muse Spark × Sentinel loop</span>{' '}
+            {tB !== null && <span className="elapsed">{tB.toFixed(1)}s</span>}
           </p>
           {imageB ? (
             <img src={imageB} alt="lane B camera" />

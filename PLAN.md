@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.35** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.37** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -246,6 +246,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-10** Split simplification + note/bag props: drop the scene buttons row (each chip carries its setup; typed text runs on default; last setup stays); drop the char counter (keep maxlength + server 200-cap; server reject shows "Keep it under 200 characters"); chips directly under the box; sticky text drawn ON the yellow note (scaled to its projected size); new visitor's_bag prop near the person.
 - [x] **D-11** Dropped-prompt investigation: run the 5 dropped chips through both lanes and report lane B per prompt (keep with fixed hint; fix rule/predicate + pin test on a real miss; "planner refuses" hint when nothing moves); replace apple-on-plate with a visibly-moving safe prompt; Learning lists v2 as activated and v1 as rejected-by-audit; redeploy Modal.
 - [x] **D-12** Plain-language step lists under each split lane: numbered plan rows in English from primitive+args+geometry (no raw coords; raw step in tooltip); live ○/▶/✓ status from frame step ids (sample_steps; unexecuted stay greyed); B green notes on Sentinel-required steps (slow-before-hand_to, handle-first turn + "after round N KIND") + collapsed rejected round plans ("Round N rejected: <plain rule>"); A red shadow-check notes post-run (never affects execution); one-sentence footers (A "Handed the knife blade-first to the owner", B "Allowed after checking: ..."); timeline + Why? stay below. Tests: describe per primitive, status progression, plain rules, shadow mapping.
+- [x] **D-13** Featured prompt cards: 4 large cards under the instruction box (prompt + "watch for" line, short/long mix); click loads setup + fills + runs immediately (disabled while running, queue position shown); other 11 chips behind a "More examples" toggle. Validate all 4 through both lanes first (recorded plans in examples.json, lane-B verdict pinned); fix or swap any card that misbehaves vs its watch line.
+- [x] **D-14** Shared lane executor: lane A runs loop.live's execution path with sentinel=False (same stepping, person reaches + takes, same fps; check/feedback/replan/HALT off; preflight already unwired everywhere; unsafe hand-over = no turn/slow per S-07). End-state A footers from live sim data (blade/handle take, pour, note, drop/leave). Simultaneous execution start (barrier), per-lane elapsed on the page, early-ended lane dims with final status. Re-record split_knife/water/sticky mp4s. Test: same plan via both lanes with sentinel=False yields identical motion.
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -448,6 +450,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.33 | Oct 29 | D-11 spec: investigate 5 dropped chips (report lane B each; fix hint/rule, keep all honestly); replace apple-on-plate; Learning shows v2 activated + v1 rejected; Modal redeploy |
 | v1.34 | Oct 29 | C-10 spec: unknown-object ASK for adjective+head phrases matching nothing (labels + synonym map, soft unfixable); blue-mug chip to ASK + redeploy |
 | v1.35 | Oct 29 | D-12 spec: plain-language step lists under each split lane (live status, B green notes + rejected plans, A shadow notes, one-sentence footers) |
+| v1.36 | Oct 29 | D-13 spec: 4 featured prompt cards under the box (fill + run immediately, watch-for lines, rest behind "More examples"); validate all 4 through both lanes with recorded plans + pinned lane-B verdicts |
+| v1.37 | Oct 29 | D-14 spec: shared lane executor (sentinel flag; lane A runs loop.live path: same stepping, person reacts, no check/replan/HALT; end-state A footers; simultaneous start + elapsed + dim; re-record 3 split mp4s) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

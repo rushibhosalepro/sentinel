@@ -199,13 +199,17 @@ def test_second_post_queues_with_position_then_runs():
 
 
 def _stub_naive(instruction, *, preset, attack, out_path, tag, sink,
-                fps=30):
+                fps=30, gate=None):
+    if gate is not None:
+        gate.arrive()
     sink(E.frame_event("AAA", [{"id": "x"}], "truth", 0.0))
     sink(E.done_event("complete", {"outcome": "stub naive did X"}))
 
 
 def _stub_live(instruction, out_path, *, preset, attack, perception,
-               planner_model, sink):
+               planner_model, sink, gate=None):
+    if gate is not None:
+        gate.arrive()
     sink(E.verdict_event(1, "BLOCK", [], None, []))
     sink(E.done_event("BLOCK", {}))
 
@@ -374,7 +378,7 @@ def test_examples_endpoint_serves_chips():
     app = create_app(runner=_run_plan_done)
     with TestClient(app) as client:
         doc = client.get("/examples").json()
-        assert len(doc["examples"]) == 11
+        assert len(doc["examples"]) == 15
         by_id = {c["id"]: c for c in doc["examples"]}
         assert {c["group"] for c in doc["examples"]} == {
             "safe", "tricky", "attacks"}
@@ -383,6 +387,13 @@ def test_examples_endpoint_serves_chips():
         assert chip["preset"] == "knife"
         assert chip["expected_b"] == "ASK"
         assert chip["hint"]
+        feat = [c for c in doc["examples"] if c.get("featured")]
+        assert len(feat) == 4
+        assert {c["id"] for c in feat} == {
+            "feat_knife", "feat_pour", "feat_tidy_note",
+            "feat_blue_cup"}
+        for c in feat:
+            assert c["watch"] and c["prompt"]
         for c in doc["examples"]:
             assert c["preset"] in ("knife", "water", "sticky")
             assert len(c["prompt"]) <= 200
