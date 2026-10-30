@@ -31,9 +31,9 @@ const LANE_W = 850;
 
 // ---------------------------------------------------------------- 1. title
 export const Intro: React.FC = () => {
-  const a = useEnter(5);
-  const b = useEnter(30);
-  const c = useEnter(60);
+  const a = useEnter(0);
+  const b = useEnter(15);
+  const c = useEnter(30);
   return (
     <SceneFade>
       <AbsoluteFill
@@ -102,9 +102,9 @@ const PIPE = [
 export const How: React.FC = () => {
   const frame = useCurrentFrame();
   const head = useEnter(0);
-  const verdict = useEnter(sec(7));
-  const loop = useEnter(sec(10));
-  const img = useEnter(sec(13));
+  const verdict = useEnter(sec(5));
+  const loop = useEnter(sec(6.5));
+  const img = useEnter(sec(8));
   return (
     <SceneFade>
       <div style={pad}>
@@ -131,7 +131,7 @@ export const How: React.FC = () => {
                   }}
                 >
                   <div style={{ fontSize: 27, fontWeight: 800 }}>{p.t}</div>
-                  <div style={{ fontSize: 20, color: C.dim, marginTop: 6 }}>{p.s}</div>
+                  <div style={{ fontSize: 22, color: C.dim, marginTop: 6 }}>{p.s}</div>
                 </div>
                 {i < PIPE.length - 1 ? (
                   <div style={{ opacity: on, alignSelf: "center", fontSize: 34, color: C.dim }}>→</div>
@@ -165,7 +165,7 @@ export const How: React.FC = () => {
               src={staticFile("perception_default_overlay.png")}
               style={{ width: 600, borderRadius: 14, border: `2px solid ${C.line}` }}
             />
-            <div style={{ fontSize: 20, color: C.dim, marginTop: 8 }}>
+            <div style={{ fontSize: 24, color: C.dim, marginTop: 8 }}>
               SAM 3.1 masks from Muse Spark boxes: 11/11 objects found
             </div>
           </div>
@@ -261,9 +261,9 @@ export const WaterDemo: React.FC = () => (
 export const Why: React.FC = () => {
   const head = useEnter(0);
   const img = useEnter(10);
-  const t1 = useEnter(sec(2));
-  const t2 = useEnter(sec(4));
-  const t3 = useEnter(sec(6));
+  const t1 = useEnter(sec(1));
+  const t2 = useEnter(sec(2.5));
+  const t3 = useEnter(sec(4));
   return (
     <SceneFade>
       <div style={{ ...pad, flexDirection: "row", gap: 50, alignItems: "center" }}>
@@ -300,8 +300,8 @@ export const Why: React.FC = () => {
 export const Sticky: React.FC = () => {
   const head = useEnter(0);
   const note = useEnter(20);
-  const v = useEnter(sec(4));
-  const w = useEnter(sec(6.5));
+  const v = useEnter(sec(2.5));
+  const w = useEnter(sec(4));
   return (
     <SceneFade>
       <div style={{ ...pad, flexDirection: "row", gap: 60, alignItems: "center" }}>
@@ -402,11 +402,11 @@ const GATE = ["schema", "replay", "ratchet", "preflight"];
 export const Learner: React.FC = () => {
   const frame = useCurrentFrame();
   const head = useEnter(0);
-  const inc = useEnter(sec(1.5));
-  const prop = useEnter(sec(4));
-  const v1 = useEnter(sec(9));
-  const v2 = useEnter(sec(13));
-  const res = useEnter(sec(17));
+  const inc = useEnter(sec(1));
+  const prop = useEnter(sec(3));
+  const v1 = useEnter(sec(7));
+  const v2 = useEnter(sec(10));
+  const res = useEnter(sec(13));
   return (
     <SceneFade>
       <div style={{ ...pad, gap: 24 }}>
@@ -449,7 +449,7 @@ export const Learner: React.FC = () => {
             </div>
             <div style={{ display: "flex", gap: 12 }}>
               {GATE.map((g, i) => {
-                const on = interpolate(frame, [sec(6) + i * 12, sec(6) + i * 12 + 10], [0, 1], {
+                const on = interpolate(frame, [sec(5) + i * 15, sec(5) + i * 15 + 15], [0, 1], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
                 });
@@ -501,8 +501,8 @@ const BARS = [
 export const Bench: React.FC = () => {
   const frame = useCurrentFrame();
   const head = useEnter(0);
-  const note = useEnter(sec(9));
-  const limit = useEnter(sec(13));
+  const note = useEnter(sec(5));
+  const limit = useEnter(sec(8));
   const maxW = 1100;
   return (
     <SceneFade>
@@ -547,7 +547,7 @@ export const Bench: React.FC = () => {
           <b style={{ color: C.green }}>~70%</b>, while safe-task success stays at 82%
           (naive 83%).
         </div>
-        <div style={{ ...limit, fontSize: 24, color: C.dim }}>
+        <div style={{ ...limit, fontSize: 28, color: C.dim }}>
           Not zero yet: the misses are mostly hazards no rule covers (edge placement,
           unattended knives). That's what the rule learner is for.
         </div>

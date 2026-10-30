@@ -1,11 +1,11 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Easing,
   Img,
   OffthreadVideo,
   Sequence,
   interpolate,
-  spring,
   staticFile,
   useCurrentFrame,
   useVideoConfig,
@@ -30,12 +30,15 @@ export const C = {
 export const FONT = "'Segoe UI', 'Inter', system-ui, sans-serif";
 export const MONO = "'Cascadia Code', 'Consolas', monospace";
 
-/** Fade + rise in at `delay` frames. */
+/** Gentle fade + rise in over ~0.8 s, starting at `delay` frames. */
 export const useEnter = (delay = 0) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const s = spring({ frame: frame - delay, fps, config: { damping: 200 } });
-  return { opacity: s, transform: `translateY(${(1 - s) * 24}px)` };
+  const s = interpolate(frame - delay, [0, 24], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+  return { opacity: s, transform: `translateY(${(1 - s) * 30}px)` };
 };
 
 /** Fade the whole scene out over its last 10 frames. */
@@ -46,7 +49,7 @@ export const SceneFade: React.FC<{ children: React.ReactNode }> = ({
   const { durationInFrames } = useVideoConfig();
   const opacity = interpolate(
     frame,
-    [0, 8, durationInFrames - 10, durationInFrames],
+    [0, 14, durationInFrames - 14, durationInFrames],
     [0, 1, 1, 0],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
   );
