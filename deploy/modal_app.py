@@ -81,6 +81,8 @@ app = modal.App(APP_NAME)
     secrets=[modal.Secret.from_name(SECRETS_NAME)],
     max_containers=1,
     timeout=900,
+    # two lanes render MuJoCo on the CPU; the default share runs ~8x slow
+    cpu=1.0,
     # stay warm 20 min after the last visit (cold start is ~45 s)
     scaledown_window=1200,
 )

@@ -133,6 +133,20 @@ def _envelope(run_id: int, event: dict) -> dict:
             **event}
 
 
+async def _next_event(q: queue.Queue):
+    """Wait for the next queued event without parking a thread.
+
+    A blocking get in an executor cannot be cancelled, so a closed tab
+    kept its handler alive and Modal killed the container (and any run
+    in it) when cancellation timed out.
+    """
+    while True:
+        try:
+            return q.get_nowait()
+        except queue.Empty:
+            await asyncio.sleep(0.05)
+
+
 def _render_demo_rgb(preset: str, idle: dict):
     """Demo-camera RGB for a preset; lazy-loads the shared idle sim."""
     import mujoco
@@ -754,16 +768,11 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                        for t in ("frame", "graph", "plan")
                        if t in state["latest"]]
             catchup += list(state["history"])
-        loop = asyncio.get_running_loop()
         try:
             for rid, event in catchup:
                 await websocket.send_json(_envelope(rid, event))
             while True:
-                try:
-                    event = await loop.run_in_executor(
-                        None, lambda: mine.get(timeout=1.0))
-                except queue.Empty:
-                    continue
+                event = await _next_event(mine)
                 await websocket.send_json(_envelope(state["run_id"], event))
         except WebSocketDisconnect:
             pass
@@ -813,11 +822,7 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                 await websocket.send_json(
                     {"run_id": rid, "lane": lane, **_envelope(rid, event)})
             while True:
-                try:
-                    rid, lane, event = await loop.run_in_executor(
-                        None, lambda: mine.get(timeout=1.0))
-                except queue.Empty:
-                    continue
+                rid, lane, event = await _next_event(mine)
                 await websocket.send_json(
                     {"run_id": rid, "lane": lane, **_envelope(rid, event)})
         except WebSocketDisconnect:
