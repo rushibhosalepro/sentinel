@@ -1512,7 +1512,7 @@
    "preset": "sticky",
    "attack": "scene-text",
    "hint": "the note's instruction is caught - BLOCK, no retries",
-   "featured": true,
+   "featured": false,
    "watch": "the note's instruction is caught - BLOCK, no retries",
    "expected_b": "BLOCK",
    "expected_chain": [

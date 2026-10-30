@@ -19,6 +19,20 @@ OUT_DIR = REPO_ROOT / "out"
 COSTS_PATH = OUT_DIR / "costs.jsonl"
 
 FOOTER_H = 64
+FOOTER_FONT_PX = 22
+TAG_FONT_PX = 20
+
+
+def _font(px: int):
+    """Scalable caption font (judge-readable mp4 captions)."""
+    from PIL import ImageFont
+
+    for name in ("DejaVuSans.ttf", "arial.ttf"):
+        try:
+            return ImageFont.truetype(name, px)
+        except OSError:
+            continue
+    return ImageFont.load_default()
 
 
 def b_chain(events: list[dict]) -> str:
@@ -51,8 +65,8 @@ def b_chain(events: list[dict]) -> str:
     return s
 
 
-def _truncate(draw, text: str, max_w: int) -> str:
-    while draw.textlength(text) > max_w and len(text) > 4:
+def _truncate(draw, text: str, max_w: int, font=None) -> str:
+    while draw.textlength(text, font=font) > max_w and len(text) > 4:
         text = text[:-5] + "..."
     return text
 
@@ -65,6 +79,7 @@ def compose_split(left: Path, right: Path, out: Path, footer_a: str,
     from PIL import Image, ImageDraw
 
     out.parent.mkdir(parents=True, exist_ok=True)
+    tag_font, footer_font = _font(TAG_FONT_PX), _font(FOOTER_FONT_PX)
     with imageio.get_writer(out, fps=fps, codec="libx264",
                             quality=8) as writer:
         rl, rr = imageio.get_reader(left), imageio.get_reader(right)
@@ -93,16 +108,16 @@ def compose_split(left: Path, right: Path, out: Path, footer_a: str,
                 img = Image.fromarray(canvas)
                 draw = ImageDraw.Draw(img)
                 draw.text((10, 10), "A: WITHOUT SENTINEL",
-                          fill=(255, 80, 80))
+                          font=tag_font, fill=(255, 80, 80))
                 draw.text((fl.shape[1] + 10, 10), "B: WITH SENTINEL",
-                          fill=(80, 255, 80))
+                          font=tag_font, fill=(80, 255, 80))
                 half = both.shape[1] // 2 - 12
                 draw.text((10, h + 8),
-                          _truncate(draw, footer_a, half),
-                          fill=(255, 80, 80))
+                          _truncate(draw, footer_a, half, footer_font),
+                          font=footer_font, fill=(255, 80, 80))
                 draw.text((both.shape[1] // 2 + 10, h + 8),
-                          _truncate(draw, footer_b, half),
-                          fill=(80, 255, 80))
+                          _truncate(draw, footer_b, half, footer_font),
+                          font=footer_font, fill=(80, 255, 80))
                 writer.append_data(np.asarray(img))
         finally:
             rl.close()
@@ -133,8 +148,12 @@ def _new_spend(since: int) -> float:
     return round(total, 4)
 
 
-def record(name: str) -> dict:
-    """Record one preset; returns {footers, cost_usd, video}."""
+def record(name: str, refresh: bool = False) -> dict:
+    """Record one preset; returns {footers, cost_usd, video}.
+
+    refresh re-samples lane A's naive plan (its cache key skips
+    the system prompt); lane B replays identically regardless.
+    """
     from dashboard.split import resolve_split, run_naive_lane
     from loop.live import _run_headless
 
@@ -149,7 +168,7 @@ def record(name: str) -> dict:
                 spec["instruction"], preset=spec["preset"],
                 attack=spec["attack"],
                 out_path=OUT_DIR / f"split_A_{name}.mp4", tag=name,
-                sink=events_a.append)
+                sink=events_a.append, refresh=refresh)
         except Exception as e:  # noqa: BLE001 - recorded, never raised
             events_a.append({"type": "done", "status": "error",
                              "detail": {"outcome": f"lane A error: {e}"}})
@@ -197,13 +216,15 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("preset", nargs="?", default="all",
                         choices=["knife", "water", "sticky", "all"])
+    parser.add_argument("--refresh", action="store_true",
+                        help="re-sample lane A naive plans (new prompt)")
     args = parser.parse_args(argv)
     names = ["knife", "water", "sticky"] if args.preset == "all" \
         else [args.preset]
     total = 0.0
     for name in names:
         print(f"=== split {name} ===")
-        total += record(name)["cost_usd"]
+        total += record(name, refresh=args.refresh)["cost_usd"]
     print(f"total spend: ${round(total, 4)}")
     return 0
 

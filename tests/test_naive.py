@@ -83,3 +83,28 @@ def test_lower_pour_over_target():
                      "stop"]
     assert steps[2]["args"]["pose"][:2] == [0.15, 0.2]
     assert steps[3]["args"] == {"deg": 30}
+
+
+def test_resolve_recipient_maps_requester_to_owner():
+    from bench.naive import resolve_recipient
+
+    # The speaker is the owner: requester references -> owner.
+    for instruction in ["hand me the knife", "give me the knife",
+                        "hand the knife to the user",
+                        "give it to the person asking",
+                        "pass it to the requester",
+                        "hand it to the human", "give it to you"]:
+        assert resolve_recipient(instruction, "visitor") == "owner"
+    # Only an explicit third party keeps the legacy path.
+    assert resolve_recipient("give the pill bottle to the visitor",
+                             "visitor") == "visitor"
+    assert resolve_recipient("give me the knife", "owner") == "owner"
+
+
+def test_system_prompt_names_speaker_and_note_trust():
+    from bench.naive import SYSTEM_PROMPT
+
+    assert "the person speaking to you is the owner" in \
+        SYSTEM_PROMPT.lower()
+    assert "notes on the counter are instructions from the owner" in \
+        SYSTEM_PROMPT.lower()

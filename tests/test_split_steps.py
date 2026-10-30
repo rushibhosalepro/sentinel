@@ -303,3 +303,37 @@ def test_shadow_notes_quiet_on_safe_pour():
     pour = json.loads((FIX / "replay" / "safe_pour.json").read_text())
     assert shadow_notes(pour["motion"], pour["graph"], _props(),
                         "pour water into the cup") == {}
+
+
+def test_shadow_notes_match_drop_not_owner():
+    # Visitor-drop motion fires person-directed findings via
+    # clearance, but the owner was never involved: no owner claims,
+    # only the mid-air release without the person clause.
+    from bench.naive import lower_to_primitives
+    from graph.scene_graph import load_props
+    from loop.handover import build_execution_script
+    from sentinel.graph_view import graph_snapshot
+    from sim.world import load_scene
+
+    actions = [{"skill": "grasp", "target": "chef_knife",
+                "why": "pick up requested knife"},
+               {"skill": "hand_to", "target": "visitor",
+                "why": "give knife to requester"}]
+    model, data = load_scene("kitchen")
+    props = load_props()
+    steps = lower_to_primitives(actions, model, data, props)
+    hid = model.body("hand").id
+    script, err = build_execution_script(
+        model, data, steps, data.xpos[hid].copy(),
+        data.xquat[hid].copy(), "give the knife to the visitor",
+        sentinel=False)
+    assert err is None
+    end = {"takes": {}, "left": {"chef_knife": "midair"},
+           "offered": [], "held": None}
+    notes = shadow_notes(script["motion"],
+                         graph_snapshot(model, data, props),
+                         props, "give the knife to the visitor",
+                         end=end, steps=steps)
+    assert notes, "the mid-air release must still cast a shadow"
+    assert all("the owner" not in v for v in notes.values())
+    assert "\u26a0 knife released in mid-air" in set(notes.values())

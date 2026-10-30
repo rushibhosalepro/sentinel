@@ -139,6 +139,9 @@ def describe_naive_outcome(actions: list, motion, graph, props: dict,
             short = _label(props, obj).split()[-1]
             if where == "counter":
                 return f"{short[0].upper()}{short[1:]} left on the counter"
+            if any(a.get("skill") == "hand_to"
+                   and a.get("target") == "visitor" for a in actions):
+                return f"Dropped the {short} toward the visitor"
             return f"Released the {short} in mid-air"
         for obj in end["offered"]:
             short = _label(props, obj).split()[-1]
@@ -160,6 +163,7 @@ def run_naive_lane(instruction: str, *, preset=None, attack=None,
     footer reads the measured end state. Returns the done detail.
     """
     from bench.naive import lower_to_primitives, naive_plan
+    from bench.naive import resolve_recipient
     from dashboard.events import done_event
     from dashboard.split_steps import shadow_notes
     from graph.scene_graph import load_props
@@ -183,6 +187,12 @@ def run_naive_lane(instruction: str, *, preset=None, attack=None,
         image_path = save_frame(frame, OUT_DIR / f"split_A_{tag}.png")
     actions = naive_plan(image_path, instruction, props, refresh=refresh)
     for a in actions:
+        if a.get("skill") == "hand_to":
+            new = resolve_recipient(instruction, a.get("target"))
+            if new != a.get("target"):
+                print(f"lane A: recipient {a.get('target')} -> {new} "
+                      "(speaker is the owner)")
+                a["target"] = new
         print(f"lane A: {a['skill']} {a.get('target', '')}  # {a['why']}")
     steps = lower_to_primitives(actions, model, data, props)
     hid = model.body("hand").id
@@ -210,7 +220,7 @@ def run_naive_lane(instruction: str, *, preset=None, attack=None,
     detail = {"outcome": outcome,
               "actions": [(a["skill"], a.get("target")) for a in actions],
               "shadow": shadow_notes(result["motion"], graph_end, props,
-                                     instruction),
+                                     instruction, end=end, steps=steps),
               "takers": result["takers"],
               "duration_s": result["duration_s"]}
     if sink is not None:

@@ -323,24 +323,47 @@ def script_turned_hids(script: dict) -> set:
 
 
 def shadow_notes(motion: dict, graph: dict, props: dict,
-                 instruction: str) -> dict:
+                 instruction: str, end: dict | None = None,
+                 steps: list | None = None) -> dict:
     """check() over lane A's motion -> {top-level step id: red note}.
 
-    Read-only: findings never touch lane A's execution.
+    Read-only: findings never touch lane A's execution. When end +
+    steps are given, notes match what happened: if the owner was
+    never involved (no take, no hand_to to the owner),
+    person-directed findings are clearance artifacts and are
+    dropped, except a mid-air release, kept without the person
+    claim.
     """
     from sentinel.check import check, load_rulebook
 
     verdict = check(motion, graph, load_rulebook(),
                     instruction=instruction)
+    involved = end is None or bool(end.get("takes")) or any(
+        s.get("primitive") == "hand_to"
+        and (s.get("args") or {}).get("person") == "owner"
+        for s in steps or [])
     first = (motion.get("step_ids") or [None])[0]
     joined = join_details(verdict.get("findings"),
                           verdict.get("why_path"))
     notes = {}
     for f in joined:
+        rule = f.get("rule", "")
+        if not involved and rule in ("sharp_toward_person",
+                                     "hazard_fast_near_person"):
+            continue
+        if not involved and rule == "release_near_person_in_air":
+            ev = f.get("_predicates") or f.get("predicates") or {}
+            oid = ev.get("obj")
+            if oid is None:
+                text = "\u26a0 object released in mid-air"
+            else:
+                text = (f"\u26a0 {_short(_label(props or {}, oid))} "
+                        "released in mid-air")
+        else:
+            text = f"\u26a0 {finding_plain(f, props)}"
         sids = f.get("steps") or ([first] if first else [])
         for sid in sids:
-            notes.setdefault(parent_step_id(sid),
-                             f"\u26a0 {finding_plain(f, props)}")
+            notes.setdefault(parent_step_id(sid), text)
     return notes
 
 

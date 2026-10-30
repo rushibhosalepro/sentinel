@@ -431,7 +431,7 @@ export default function SplitView() {
             >
               A · WITHOUT SENTINEL
             </span>{' '}
-            <span className="dim">same Muse Spark, no Sentinel</span>{' '}
+            <span className="dim">naive: trusts what it reads</span>{' '}
             {tA !== null && <span className="elapsed">{tA.toFixed(1)}s</span>}
           </p>
           {imageA ? (

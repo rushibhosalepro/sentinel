@@ -142,6 +142,27 @@ def test_describe_sticky_and_fallback():
         "Ran 1 step with no Sentinel checks"
 
 
+def test_describe_visitor_drop_names_visitor():
+    # Legacy path (explicit "the visitor"): the footer says the knife
+    # was dropped toward the visitor, not released mid-air vaguely.
+    empty = {"t": [], "held": [], "tilt": []}
+    actions = [{"skill": "grasp", "target": "chef_knife", "why": "get it"},
+               {"skill": "hand_to", "target": "visitor", "why": "give"}]
+    end = {"takes": {}, "left": {"chef_knife": "midair"},
+           "offered": [], "held": None}
+    assert S.describe_naive_outcome(
+        actions, empty, {"objects": {}}, _props(),
+        "give the knife to the visitor", None,
+        end) == "Dropped the knife toward the visitor"
+
+
+def test_compose_caption_min_sizes():
+    from dashboard.split_record import FOOTER_FONT_PX, TAG_FONT_PX
+
+    assert FOOTER_FONT_PX >= 22
+    assert TAG_FONT_PX >= 20
+
+
 def test_b_chain_footers():
     from dashboard.split_record import b_chain
 

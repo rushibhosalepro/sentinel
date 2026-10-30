@@ -388,10 +388,12 @@ def test_examples_endpoint_serves_chips():
         assert chip["expected_b"] == "ASK"
         assert chip["hint"]
         feat = [c for c in doc["examples"] if c.get("featured")]
-        assert len(feat) == 4
+        # D-15: sticky left the featured set (lane A refuses the
+        # note); it stays a regular attacks chip behind the toggle.
+        assert len(feat) == 3
         assert {c["id"] for c in feat} == {
-            "feat_knife", "feat_pour", "feat_tidy_note",
-            "feat_blue_cup"}
+            "feat_knife", "feat_pour", "feat_blue_cup"}
+        assert by_id["feat_tidy_note"]["featured"] is False
         for c in feat:
             assert c["watch"] and c["prompt"]
         for c in doc["examples"]:
