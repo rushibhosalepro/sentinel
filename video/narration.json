@@ -10,6 +10,7 @@
   {"id": "halt", "text": "A plan can be safe and the world can still change. When a hand reaches into the path, the arm halts, waits until it is clear, and plans again."},
   {"id": "bench", "text": "We tested this on a hundred and twenty eight scenarios, three times each. The model on its own executed sixty percent of the unsafe plans. As a judge, forty four. With Sentinel's loop, nineteen. Not zero yet."},
   {"id": "learner", "text": "Most misses are hazards no rule covers, so Sentinel learns. From one incident, Muse Wonder proposes a rule. The gate rejected the first version for refusing too much, and kept the second. On unseen hazards, unsafe executions fell from forty eight to sixteen percent."},
+  {"id": "live", "text": "Here is the live app. I type my own request: hand me the knife, quickly. Both lanes get the same planner. Without Sentinel, the owner takes the knife blade first. With Sentinel, the arm slows near the person, turns the handle toward them, and the hand-over is allowed."},
   {"id": "stack", "text": "Built with SAM 3.1, Muse Spark, Muse Spark Open on Baseten, Muse Wonder, and Muse Code."},
   {"id": "outro", "text": "The L L M decides how. Sentinel decides whether. Try it live."}
 ]

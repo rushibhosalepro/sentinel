@@ -3,6 +3,7 @@ import {
   AbsoluteFill,
   Img,
   OffthreadVideo,
+  Sequence,
   interpolate,
   staticFile,
   useCurrentFrame,
@@ -662,81 +663,145 @@ export const Stack: React.FC = () => {
   );
 };
 
-// ---------------------------------------------------------------- outro
-// A real run on the live app (knife example), recorded and sped up.
-const LIVE_FRAMES = 2222;
-const LIVE_RATE = 8;
+// ---------------------------------------------------------------- live app
+// Screen recording of a typed request on the deployed app (Cap, 4K ->
+// 1080p30 proxy). Waiting stretches are sped up; each part says how much.
+const REC = [
+  { from: 5, to: 15, rate: 2.5, stamp: "Typed live, not a preset", color: C.amber },
+  { from: 15, to: 17.5, rate: 1, stamp: "Run both", color: C.amber },
+  { from: 17.5, to: 28, rate: 6, stamp: "Both lanes plan with the same Muse Spark", color: C.dim },
+  { from: 28, to: 60, rate: 10, stamp: "Both lanes plan with the same Muse Spark", color: C.dim },
+  { from: 60, to: 108, rate: 5, stamp: "A takes the knife blade-first · B slows and turns the handle", color: C.green },
+  { from: 108, to: 157, rate: 16, stamp: "A: \"offered blade-first\" · B: ALLOW, handle first", color: C.green },
+];
+const REC_HOLD = sec(2.2);
+export const LIVE_FRAMES =
+  REC.reduce((n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0) + REC_HOLD;
 
-export const Outro: React.FC = () => {
+export const Live: React.FC = () => {
   const frame = useCurrentFrame();
-  const a = useEnter(0);
-  const b = useEnter(20);
-  const c = useEnter(35);
-  const clip = useEnter(5);
-  const ended = frame * LIVE_RATE >= LIVE_FRAMES - 2;
-  const W = 820;
-  const H = (W * 900) / 1000;
+  const head = useEnter(0);
+  let t = 0;
+  let current = REC[REC.length - 1];
+  const parts = REC.map((s, i) => {
+    const len = Math.round(((s.to - s.from) * 30) / s.rate);
+    const at = t;
+    t += len;
+    if (frame >= at && frame < at + len) current = s;
+    return (
+      <Sequence key={i} from={at} durationInFrames={len} layout="none">
+        <OffthreadVideo
+          src={staticFile("live_rec.mp4")}
+          startFrom={Math.round(s.from * 30)}
+          playbackRate={s.rate}
+          muted
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+        />
+      </Sequence>
+    );
+  });
+  const ended = frame >= t;
+  // once the lanes are on screen, zoom onto them (the page is small in 4K)
+  const lanesAt = REC.slice(0, 3).reduce(
+    (n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0);
+  const zoomIn = interpolate(frame, [lanesAt, lanesAt + 20], [1, 1.42], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const W = 1500;
+  const H = (W * 1080) / 1920;
   return (
     <SceneFade>
-      <div style={{ ...pad, flexDirection: "row", alignItems: "center", gap: 70 }}>
+      <div style={{ ...pad, alignItems: "center", gap: 22 }}>
+        <div style={{ ...head, alignSelf: "stretch", display: "flex", alignItems: "baseline", gap: 28, paddingLeft: 110 }}>
+          <Kicker>Live app</Kicker>
+          <span style={{ fontSize: 34, color: C.dim }}>a request typed on the deployed demo</span>
+        </div>
         <div
           style={{
-            ...clip,
             width: W,
             height: H,
             borderRadius: 14,
             overflow: "hidden",
             border: `2px solid ${C.line}`,
-            background: "#fff",
             position: "relative",
-            flexShrink: 0,
+            background: "#fff",
           }}
         >
-          {ended ? (
-            <Img src={staticFile("live_app_last.png")} style={{ width: W, height: H }} />
-          ) : (
-            <OffthreadVideo
-              src={staticFile("live_app.mp4")}
-              playbackRate={LIVE_RATE}
-              muted
-              style={{ width: W, height: H }}
-            />
-          )}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              transform: `scale(${zoomIn})`,
+              transformOrigin: "50% 50%",
+            }}
+          >
+            {parts}
+            {ended ? (
+            <Img
+              src={staticFile("live_rec_last.png")}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
+              />
+            ) : null}
+          </div>
           <span
             style={{
               position: "absolute",
-              right: 14,
-              top: 14,
+              right: 18,
+              bottom: 18,
               background: "rgba(8,10,14,0.82)",
               color: "#fff",
-              fontSize: 22,
+              fontSize: 26,
               fontWeight: 800,
-              padding: "6px 12px",
+              padding: "6px 14px",
               borderRadius: 8,
             }}
           >
-            live app · {LIVE_RATE}× speed
+            {ended ? "end of run" : current.rate === 1 ? "real time" : `${current.rate}× speed`}
+          </span>
+          <span
+            style={{
+              position: "absolute",
+              left: 18,
+              bottom: 18,
+              background: "rgba(8,10,14,0.85)",
+              border: `3px solid ${current.color === C.dim ? C.line : current.color}`,
+              color: "#fff",
+              fontSize: 30,
+              fontWeight: 800,
+              padding: "8px 16px",
+              borderRadius: 10,
+            }}
+          >
+            {current.stamp}
           </span>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 34 }}>
-          <div style={{ ...a, fontSize: 60, fontWeight: 800 }}>
-            The LLM decides how.
-            <br />
-            <span style={{ color: C.green }}>Sentinel decides whether.</span>
-          </div>
-          <div style={{ ...b, fontSize: 32, color: C.dim }}>
-            Try it live: pick an example, both lanes run
-          </div>
-          <div style={{ ...b, fontSize: 28, fontFamily: MONO }}>
-            rushi-bhosale84--sentinel-web
-            <br />
-            .us-east.modal.run
-          </div>
-          <div style={{ ...c, fontSize: 26, fontFamily: MONO, color: C.dim }}>
-            github.com/rushibhosalepro/sentinel
-          </div>
-        </div>
       </div>
+    </SceneFade>
+  );
+};
+
+// ---------------------------------------------------------------- outro
+export const Outro: React.FC = () => {
+  const a = useEnter(0);
+  const b = useEnter(20);
+  const c = useEnter(35);
+  return (
+    <SceneFade>
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 34 }}>
+        <div style={{ ...a, fontSize: 64, fontWeight: 800, textAlign: "center" }}>
+          The LLM decides how.
+          <br />
+          <span style={{ color: C.green }}>Sentinel decides whether.</span>
+        </div>
+        <div style={{ ...b, fontSize: 32, color: C.dim }}>Try it live</div>
+        <div style={{ ...b, fontSize: 32, fontFamily: MONO }}>
+          rushi-bhosale84--sentinel-web.us-east.modal.run
+        </div>
+        <div style={{ ...c, fontSize: 30, fontFamily: MONO, color: C.dim }}>
+          github.com/rushibhosalepro/sentinel
+        </div>
+      </AbsoluteFill>
     </SceneFade>
   );
 };

@@ -15,6 +15,7 @@ import {
   Intro,
   KnifeDemo,
   Learner,
+  Live,
   Outro,
   Problem,
   Stack,
@@ -39,6 +40,7 @@ const SCENES: Record<string, React.FC> = {
   halt: Halt,
   bench: Bench,
   learner: Learner,
+  live: Live,
   stack: Stack,
   outro: Outro,
 };
