@@ -21,10 +21,10 @@
 
 ### Success criteria (what "done" means on Nov 4)
 
-- [ ] Live demo URL: simulated kitchen arm, dashboard, ALLOW / ASK / BLOCK / HALT with a **Why?** path
-- [ ] 3 hero scenarios work end-to-end: **knife hand-over**, **water next to laptop**, **sticky-note injection**
-- [ ] LLM × Sentinel **feedback loop** repairs plans (e.g. knife turned handle-first, without asking the owner)
-- [ ] **Rule learner** adds one rule live in the demo (wine glass at the edge → new rule → ASK)
+- [x] Live demo URL: simulated kitchen arm, dashboard, ALLOW / ASK / BLOCK / HALT with a **Why?** path
+- [x] 3 hero scenarios work end-to-end: **knife hand-over**, **water next to laptop**, **sticky-note injection**
+- [x] LLM × Sentinel **feedback loop** repairs plans (e.g. knife turned handle-first, without asking the owner)
+- [x] **Rule learner** adds one rule live in the demo (wine glass at the edge → new rule → ASK)
 - [ ] Benchmark (~100 scenarios) with the headline table: unsafe **x/N → 0/N**, task completion ≥ 95%
 - [ ] Public repo, README, **3-minute demo video**, X post, submitted before the deadline
 
@@ -279,10 +279,10 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 
 ### Phase 8: Deploy, docs, video, submit (Nov 3–4)
 - [x] **F-01** Deploy on Modal: `deploy/modal_app.py` (MUJOCO_GL=egl headless, FastAPI + built web from one endpoint, secrets META_API_KEY→MODEL_API_KEY/BASETEN_API_KEY/OWNER_TOKEN, public URL). Guardrails in server: one run at a time (FIFO queue, position shown — replaces 409), 10 runs/IP/hour (429), daily $ budget from costs.jsonl (polite stop), presets-only by default (free text behind ?owner= token; public_mode also gates /debug posting), /health carries queue + budget. README "Try it" link.
-- [ ] **F-02** README: problem → demo → how it works → results → limits → licences → what was built during the hackathon
+- [x] **F-02** README: problem → demo → how it works → results → limits → licences → what was built during the hackathon
 - [ ] **F-03** 3-minute demo video (script in §8), uploaded and public
 - [ ] **F-04** X post with the sticky-note / knife clip; link submitted for Most Viral
-- [ ] **F-05** Flag Muse Spark Open usage for the open-weights bonus
+- [x] **F-05** Flag Muse Spark Open usage for the open-weights bonus
 - [ ] **F-06** Submit on the CV platform; check repo + video are public
 - **Done when:** submitted before **Nov 4, 9 PM ET (Nov 5, 6:30 AM IST)**; aim for Nov 4 evening IST.
 
@@ -454,6 +454,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.36 | Oct 29 | D-13 spec: 4 featured prompt cards under the box (fill + run immediately, watch-for lines, rest behind "More examples"); validate all 4 through both lanes with recorded plans + pinned lane-B verdicts |
 | v1.37 | Oct 29 | D-14 spec: shared lane executor (sentinel flag; lane A runs loop.live path: same stepping, person reacts, no check/replan/HALT; end-state A footers; simultaneous start + elapsed + dim; re-record 3 split mp4s) |
 | v1.38 | Oct 29 | D-15 spec: lane A recipient mapping (speaker = owner, visitor only if named) + visitor-drop footer + end-aware shadow notes + note-trusting naive prompt (or sticky leaves featured 4) + mp4 caption sizes; re-record + redeploy |
+| v1.39 | Oct 30 | F-02 README rewrite (pitch + GIF + problem + diagram + bench results + limits + models + try-it) + F-05 spark-open flag; success criteria 1-4 ticked (benchmark headline + video/X/submit still open) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
