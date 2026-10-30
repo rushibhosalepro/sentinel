@@ -663,18 +663,99 @@ export const Stack: React.FC = () => {
   );
 };
 
+// ---------------------------------------------------------------- learner in the app
+// The dashboard's Rules tab (/debug): incident box, the active learned
+// rule, and its gate report. Crop is 825x515 px.
+const LEARN_STEPS = [
+  { at: 1.5, y: 0, h: 100, color: C.amber, n: "1", t: "The owner reports an incident", s: "one sentence, on the last run" },
+  { at: 4.5, y: 285, h: 230, color: C.green, n: "2", t: "Muse Wonder proposes · the gate checks", s: "schema, replay, ratchet, preflight" },
+  { at: 7.2, y: 120, h: 142, color: C.blue, n: "3", t: "The kept rule is live", s: "the owner can roll it back" },
+];
+
+export const LearnApp: React.FC = () => {
+  const frame = useCurrentFrame();
+  const head = useEnter(0);
+  const pic = useEnter(8);
+  const W = 1050;
+  const k = W / 825;
+  const on = (at: number) =>
+    interpolate(frame, [sec(at), sec(at) + 12], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+  return (
+    <SceneFade>
+      <div style={{ ...pad, gap: 30 }}>
+        <div style={{ ...head, display: "flex", alignItems: "baseline", gap: 28 }}>
+          <Kicker>The learning loop, in the app</Kicker>
+          <span style={{ fontSize: 30, color: C.dim }}>dashboard · Rules tab</span>
+        </div>
+        <div style={{ display: "flex", gap: 60, alignItems: "center" }}>
+          <div style={{ ...pic, position: "relative", width: W, flexShrink: 0 }}>
+            <Img
+              src={staticFile("rules_tab.png")}
+              style={{ width: W, borderRadius: 14, border: `2px solid ${C.line}`, display: "block" }}
+            />
+            {LEARN_STEPS.map((st) => (
+              <div
+                key={st.n}
+                style={{
+                  position: "absolute",
+                  left: -6,
+                  top: st.y * k - 6,
+                  width: W + 12,
+                  height: st.h * k + 12,
+                  border: `4px solid ${st.color}`,
+                  borderRadius: 12,
+                  opacity: on(st.at),
+                  boxShadow: `0 0 24px ${st.color}`,
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
+            {LEARN_STEPS.map((st) => (
+              <div key={st.n} style={{ opacity: on(st.at), display: "flex", gap: 20 }}>
+                <div
+                  style={{
+                    width: 54,
+                    height: 54,
+                    borderRadius: 27,
+                    background: st.color,
+                    color: "#0b0f14",
+                    fontSize: 32,
+                    fontWeight: 900,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {st.n}
+                </div>
+                <div>
+                  <div style={{ fontSize: 36, fontWeight: 800 }}>{st.t}</div>
+                  <div style={{ fontSize: 26, color: C.dim, marginTop: 4 }}>{st.s}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </SceneFade>
+  );
+};
+
 // ---------------------------------------------------------------- live app
 // Screen recording of a typed request on the deployed app (Cap, 4K ->
 // 1080p30 proxy). Waiting stretches are sped up; each part says how much.
 const REC = [
-  { from: 5, to: 15, rate: 2.5, stamp: "Typed live, not a preset", color: C.amber },
-  { from: 15, to: 17.5, rate: 1, stamp: "Run both", color: C.amber },
-  { from: 17.5, to: 28, rate: 6, stamp: "Both lanes plan with the same Muse Spark", color: C.dim },
-  { from: 28, to: 60, rate: 10, stamp: "Both lanes plan with the same Muse Spark", color: C.dim },
-  { from: 60, to: 108, rate: 5, stamp: "A takes the knife blade-first · B slows and turns the handle", color: C.green },
-  { from: 108, to: 157, rate: 16, stamp: "A: \"offered blade-first\" · B: ALLOW, handle first", color: C.green },
+  { from: 5, to: 17.5, rate: 6, stamp: "Typed live, not a preset", color: C.amber },
+  { from: 17.5, to: 62, rate: 12, stamp: "Same Muse Spark plans both lanes", color: C.dim },
+  { from: 62, to: 108, rate: 6, stamp: "A hands it blade-first · B slows and turns the handle", color: C.green },
+  { from: 108, to: 157, rate: 12, stamp: "A: \"offered blade-first\" · B: ALLOW, handle first", color: C.green },
 ];
-const REC_HOLD = sec(2.2);
+const REC_HOLD = sec(1.3);
 export const LIVE_FRAMES =
   REC.reduce((n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0) + REC_HOLD;
 
@@ -702,9 +783,9 @@ export const Live: React.FC = () => {
   });
   const ended = frame >= t;
   // once the lanes are on screen, zoom onto them (the page is small in 4K)
-  const lanesAt = REC.slice(0, 3).reduce(
+  const lanesAt = REC.slice(0, 1).reduce(
     (n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0);
-  const zoomIn = interpolate(frame, [lanesAt, lanesAt + 20], [1, 1.42], {
+  const zoomIn = interpolate(frame, [lanesAt + 20, lanesAt + 40], [1, 1.42], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });

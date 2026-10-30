@@ -18,8 +18,8 @@ from pathlib import Path
 import edge_tts
 
 ROOT = Path(__file__).resolve().parent.parent
-VOICE = sys.argv[1] if len(sys.argv) > 1 else "en-US-AndrewNeural"
-RATE = "+0%"
+VOICE = sys.argv[1] if len(sys.argv) > 1 else "en-US-AndrewMultilingualNeural"
+RATE = "-5%"
 # Spellings the SAPI voice needed that a neural voice reads better as-is.
 SAY = {"L L M": "LLM"}
 
@@ -29,7 +29,14 @@ async def speak(sid: str, text: str) -> None:
         text = text.replace(a, b)
     out = ROOT / "public" / "voice" / f"{sid}.wav"
     tmp = out.with_suffix(".tts.mp3")
-    await edge_tts.Communicate(text, VOICE, rate=RATE).save(str(tmp))
+    for attempt in range(4):  # the service sometimes returns no audio
+        try:
+            await edge_tts.Communicate(text, VOICE, rate=RATE).save(str(tmp))
+            break
+        except edge_tts.exceptions.NoAudioReceived:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(2)
     subprocess.run(
         ["npx", "remotion", "ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp),
          "-ac", "1", "-ar", "24000", str(out)],
