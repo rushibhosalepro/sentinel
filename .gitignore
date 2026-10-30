@@ -22,3 +22,7 @@ sentinel/rules/VERSIONS.jsonl
 # raw benchmark runs (46 MB each; compact per-cell CSV is committed instead)
 bench/runs/
 bench/first_run/
+
+# remotion video project
+video/node_modules/
+video/out/

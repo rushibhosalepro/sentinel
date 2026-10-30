@@ -68,6 +68,7 @@ image = (
             ".env",
             ".env.local",
             ".env.production",
+            "video",
         ],
     )
 )
