@@ -68,7 +68,7 @@ export const Kicker: React.FC<{ children: React.ReactNode; color?: string }> = (
 }) => (
   <div
     style={{
-      fontSize: 26,
+      fontSize: 30,
       letterSpacing: 4,
       textTransform: "uppercase",
       color,
@@ -81,7 +81,7 @@ export const Kicker: React.FC<{ children: React.ReactNode; color?: string }> = (
 
 export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({
   children,
-  size = 64,
+  size = 72,
 }) => (
   <div style={{ fontSize: size, fontWeight: 800, lineHeight: 1.15 }}>
     {children}
