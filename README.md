@@ -5,10 +5,11 @@
 Live demo: https://rushi-bhosale84--sentinel-web.us-east.modal.run
 (`/` split view: naive vs Sentinel side by side; `/debug` full dashboard)
 
-![knife hand-over: naive hands it blade-first, Sentinel turns it handle-first and slows down](docs/knife_split.gif)
+![knife hand-over: naive hands it blade-first, with Sentinel it goes handle-first and slows down](docs/knife_split.gif)
 
-*Left: no Sentinel — the knife is handed blade-first. Right: Sentinel checks
-the motion, turns it handle-first, slows near the person. Full 17 s clip:
+*Left: no Sentinel — the knife is handed blade-first. Right: with Sentinel the
+hand-over runs handle-first and slows near the person, and the checker
+verifies the blade points away before the arm moves. Full 17 s clip:
 `out/split_knife.mp4` (re-record with `uv run python -m dashboard.split_record knife`).*
 
 ## The problem
