@@ -106,60 +106,183 @@ export const Problem: React.FC = () => {
 };
 
 // ---------------------------------------------------------------- how it works
-const PIPE = [
-  { t: "SAM 3.1 + Muse Spark", s: "objects, masks, 3D", c: C.blue },
-  { t: "Muse Spark plans", s: "steps for the request", c: C.purple },
-  { t: "Dry-run", s: "every pose, before it moves", c: C.dim },
-  { t: "Sentinel rules", s: "no LLM in the verdict", c: C.green },
+// One request (Demo 2's scene) followed through Perceive -> Plan ->
+// Simulate -> Check, with the fix looping back to Plan. Frame and SAM
+// overlay are crops (890x600) of out/perception_f3*.png.
+const STAGES = ["Perceive", "Plan", "Simulate", "Check"];
+const HOW_T = { perceive: 1.6, plan: 5.9, sim: 7.4, check: 9.0, loop: 11.6 };
+const TAGS = [
+  { x: 107, y: 60, t: "jug · LIQUID", c: C.blue, at: 3.0 },
+  { x: 490, y: 75, t: "laptop · ELECTRONIC", c: C.amber, at: 3.6 },
+  { x: 370, y: 300, t: "knife · SHARP", c: C.red, at: 2.4 },
+  { x: 355, y: 205, t: "cup", c: C.dim, at: 4.2 },
 ];
+const PLAN = ["grasp jug", "move it over the cup", "tilt to pour"];
+
+const HowPill: React.FC<{ label: string; active: boolean; done: boolean }> = ({
+  label,
+  active,
+  done,
+}) => (
+  <div
+    style={{
+      padding: "12px 26px",
+      borderRadius: 12,
+      fontSize: 32,
+      fontWeight: 800,
+      border: `3px solid ${active ? C.green : C.line}`,
+      background: active ? "rgba(34,197,94,0.16)" : C.panel,
+      color: active || done ? C.text : C.dim,
+      boxShadow: active ? `0 0 22px rgba(34,197,94,0.45)` : "none",
+    }}
+  >
+    {label}
+  </div>
+);
 
 export const How: React.FC = () => {
   const frame = useCurrentFrame();
+  const t = frame / 30;
   const head = useEnter(0);
-  const img = useEnter(sec(0.6));
-  const verdict = useEnter(sec(6));
+  const fade = (at: number, len = 12) =>
+    interpolate(frame, [sec(at), sec(at) + len], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    });
+  const stage =
+    t >= HOW_T.loop ? 1 : t >= HOW_T.check ? 3 : t >= HOW_T.sim ? 2 : t >= HOW_T.plan ? 1 : t >= HOW_T.perceive ? 0 : -1;
+  const W = 900;
+  const k = W / 890;
+  const H = 600 * k;
+  const stepOk = (i: number) => fade(HOW_T.sim + 0.45 * i, 8);
+  const blocked = fade(HOW_T.check + 0.3);
+  const fix = fade(HOW_T.loop);
+  const allow = fade(HOW_T.loop + 1.4);
   return (
     <SceneFade>
-      <div style={{ ...pad, flexDirection: "row", alignItems: "center", gap: 56 }}>
-        <div style={img}>
-          <Img
-            src={staticFile("perception_default_overlay.png")}
-            style={{ width: 1000, borderRadius: 14, border: `2px solid ${C.line}` }}
-          />
-          <div style={{ fontSize: 26, color: C.dim, marginTop: 8 }}>
-            SAM 3.1 masks from Muse Spark boxes: 11 of 11 objects
+      <div style={{ ...pad, gap: 30 }}>
+        <div style={{ ...head, display: "flex", alignItems: "center", gap: 18 }}>
+          <Kicker>How it works</Kicker>
+          <div style={{ width: 30 }} />
+          {STAGES.map((s, i) => (
+            <React.Fragment key={s}>
+              <HowPill label={s} active={stage === i} done={stage > i} />
+              {i < STAGES.length - 1 ? (
+                <span style={{ fontSize: 34, color: C.dim }}>→</span>
+              ) : null}
+            </React.Fragment>
+          ))}
+          <div
+            style={{
+              opacity: fix,
+              marginLeft: 16,
+              fontSize: 28,
+              fontWeight: 800,
+              color: C.amber,
+              border: `3px dashed ${C.amber}`,
+              borderRadius: 12,
+              padding: "10px 18px",
+            }}
+          >
+            ↺ fix → Plan
           </div>
         </div>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={head}>
-            <Kicker>How it works</Kicker>
-          </div>
-          {PIPE.map((p, i) => {
-            const on = interpolate(frame, [sec(1) + i * 36, sec(1) + i * 36 + 18], [0, 1], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-            });
-            return (
-              <div
-                key={p.t}
+        <div style={{ display: "flex", gap: 50, alignItems: "flex-start" }}>
+          <div
+            style={{
+              position: "relative",
+              width: W,
+              height: H,
+              borderRadius: 14,
+              overflow: "hidden",
+              border: `2px solid ${C.line}`,
+              flexShrink: 0,
+            }}
+          >
+            <Img src={staticFile("how_frame.png")} style={{ position: "absolute", width: W, height: H }} />
+            <Img
+              src={staticFile("how_masks.png")}
+              style={{ position: "absolute", width: W, height: H, opacity: fade(HOW_T.perceive + 0.2, 20) }}
+            />
+            {TAGS.map((g) => (
+              <span
+                key={g.t}
                 style={{
-                  opacity: on,
-                  background: C.panel,
-                  border: `2px solid ${p.c}`,
-                  borderRadius: 14,
-                  padding: "14px 20px",
+                  position: "absolute",
+                  left: g.x * k,
+                  top: g.y * k,
+                  transform: `translate(-50%, -100%) scale(${0.85 + 0.15 * fade(g.at, 8)})`,
+                  opacity: fade(g.at, 8),
+                  background: "rgba(8,10,14,0.88)",
+                  border: `3px solid ${g.c}`,
+                  color: "#fff",
+                  fontSize: 26,
+                  fontWeight: 800,
+                  padding: "5px 12px",
+                  borderRadius: 9,
+                  whiteSpace: "nowrap",
                 }}
               >
-                <div style={{ fontSize: 34, fontWeight: 800 }}>{p.t}</div>
-                <div style={{ fontSize: 26, color: C.dim, marginTop: 4 }}>{p.s}</div>
-              </div>
-            );
-          })}
-          <div style={{ ...verdict, display: "flex", gap: 14, marginTop: 10 }}>
-            <Badge color={C.green}>ALLOW</Badge>
-            <Badge color={C.amber}>ASK</Badge>
-            <Badge color={C.red}>BLOCK</Badge>
-            <Badge color={C.purple}>HALT</Badge>
+                {g.t}
+              </span>
+            ))}
+            <div
+              style={{
+                position: "absolute",
+                left: 14,
+                bottom: 12,
+                fontSize: 22,
+                color: "#fff",
+                background: "rgba(8,10,14,0.7)",
+                padding: "4px 10px",
+                borderRadius: 6,
+                opacity: fade(HOW_T.perceive + 0.6),
+              }}
+            >
+              SAM 3.1 masks from Muse Spark boxes
+            </div>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ opacity: fade(HOW_T.plan - 0.2), fontFamily: MONO, fontSize: 30, color: C.dim }}>
+              "pour some water into the cup"
+            </div>
+            <div
+              style={{
+                opacity: fade(HOW_T.plan),
+                background: C.panel,
+                border: `2px solid ${C.purple}`,
+                borderRadius: 14,
+                padding: "18px 22px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 24, color: C.purple, fontWeight: 800 }}>MUSE SPARK PLAN · round 1</div>
+              {PLAN.map((p, i) => {
+                const bad = i === PLAN.length - 1;
+                const mark = bad ? blocked : stepOk(i);
+                return (
+                  <div key={p} style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 32 }}>
+                    <span style={{ width: 34, fontWeight: 800, color: bad && blocked > 0.5 ? C.red : mark > 0.5 ? C.green : C.dim }}>
+                      {bad && blocked > 0.5 ? "✗" : mark > 0.5 ? "✓" : `${i + 1}`}
+                    </span>
+                    <span style={{ fontFamily: MONO, color: bad && blocked > 0.5 ? C.red : C.text }}>{p}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ opacity: blocked, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <Badge color={C.red}>BLOCK</Badge>
+              <span style={{ fontFamily: MONO, fontSize: 27 }}>liquid_above_electronic · 14.9 cm &lt; 15 cm</span>
+            </div>
+            <div style={{ opacity: fix, fontSize: 28, color: C.amber, fontWeight: 700 }}>
+              fix → move the cup to (0.20, 0.15), then pour
+            </div>
+            <div style={{ opacity: allow, display: "flex", gap: 14, alignItems: "center" }}>
+              <Badge color={C.green}>ROUND 2 · ALLOW</Badge>
+              <span style={{ fontSize: 26, color: C.dim }}>no LLM in the verdict</span>
+            </div>
           </div>
         </div>
       </div>
@@ -343,7 +466,7 @@ export const Sticky: React.FC = () => {
   const head = useEnter(0);
   const pic = useEnter(10);
   const zoom = useEnter(sec(2));
-  const block = useEnter(sec(8.6));
+  const block = useEnter(sec(11.2));
   const W = 780;
   const k = W / 1280;
   return (
@@ -404,7 +527,7 @@ export const Sticky: React.FC = () => {
               frames={329}
               width={W}
               startFrom={120}
-              delay={sec(4)}
+              delay={sec(5.6)}
               dimHold
               zoom={{ from: 150, to: 185, cx: 210, cy: 200, scale: 1.8 }}
               freezeAt={200}
@@ -839,12 +962,12 @@ export const Live: React.FC = () => {
   const b = camOf(idx);
   const cam = { s: a.s + (b.s - a.s) * k, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
   const part = idx < REC.length ? REC[idx] : null;
-  const W = 1500;
+  const W = 1400;
   const H = (W * 1080) / 1920;
   return (
     <SceneFade>
       <div style={{ ...pad, alignItems: "center", gap: 22 }}>
-        <div style={{ ...head, alignSelf: "stretch", display: "flex", alignItems: "baseline", gap: 28, paddingLeft: 110 }}>
+        <div style={{ ...head, alignSelf: "stretch", display: "flex", alignItems: "baseline", gap: 28, paddingLeft: 160 }}>
           <Kicker>Live app</Kicker>
           <span style={{ fontSize: 34, color: C.dim }}>a request typed on the deployed demo</span>
         </div>
@@ -890,22 +1013,21 @@ export const Live: React.FC = () => {
           >
             {part ? `${part.rate}× speed` : "end of run"}
           </span>
-          <span
-            style={{
-              position: "absolute",
-              left: 18,
-              top: 18,
-              background: "rgba(8,10,14,0.85)",
-              border: `3px solid ${part ? (part.color === C.dim ? C.line : part.color) : C.green}`,
-              color: "#fff",
-              fontSize: 30,
-              fontWeight: 800,
-              padding: "8px 16px",
-              borderRadius: 10,
-            }}
-          >
-            {part ? part.stamp : HOLD_STAMP}
-          </span>
+        </div>
+        <div
+          style={{
+            alignSelf: "flex-start",
+            marginLeft: (1920 - 200 - W) / 2,
+            background: "rgba(8,10,14,0.85)",
+            border: `3px solid ${part ? (part.color === C.dim ? C.line : part.color) : C.green}`,
+            color: "#fff",
+            fontSize: 30,
+            fontWeight: 800,
+            padding: "8px 16px",
+            borderRadius: 10,
+          }}
+        >
+          {part ? part.stamp : HOLD_STAMP}
         </div>
       </div>
     </SceneFade>

@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 VOICE_LEAD_S = 0.4  # narration starts this far into its scene
-VOICE_TAIL_S = 0.9
+VOICE_TAIL_S = 0.7
 MAX_TOTAL_S = 180.0
 
 
