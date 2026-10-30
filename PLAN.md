@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.28** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.34** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -216,6 +216,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-07** Unit tests for each rule with positive and negative cases
 - [x] **C-08** Sentinel live in `loop.live` (background check, overlay verdict + findings, BLOCK/ASK never move)
 - [x] **C-09** Computed liquid safe spot: `safe_spot.py` grid search (15 cm + 4 cm margin, unoccupied, in workspace, tilt-30 builds) fills the `{safe_spot}` hint template; None → terminal ASK (unfixable, straight to owner)
+- [x] **C-10** Unknown-object ASK: instruction names an object phrase (adjective + noun) matching nothing in the graph while the plan acts on a different object → soft unfixable ASK "I can't see a blue mug - did you mean the cup?"; heads resolve via graph labels + synonym map (mug~cup, glass~wine_glass, pills~pill_bottle, phone, laptop); synonym head with an unmatched adjective still ASKs, bare synonym ("hand me the mug") ALLOWs; pin blue-mug/mug/appel tests; blue-mug chip hint + verdict to ASK; redeploy Modal
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
@@ -444,6 +445,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.31 | Oct 29 | D-09 spec: judge-friendly split view (free text for all + 200-char cap, 2-line textarea + big Run button, example chips from tests/fixtures/examples.json via GET /examples with lane-B validation + recorded-plans test, matching footers) |
 | v1.32 | Oct 29 | D-10 spec: split simplification (no scene row/counter; chips own setups; reject hint); sticky text on the note; visitor's_bag prop |
 | v1.33 | Oct 29 | D-11 spec: investigate 5 dropped chips (report lane B each; fix hint/rule, keep all honestly); replace apple-on-plate; Learning shows v2 activated + v1 rejected; Modal redeploy |
+| v1.34 | Oct 29 | C-10 spec: unknown-object ASK for adjective+head phrases matching nothing (labels + synonym map, soft unfixable); blue-mug chip to ASK + redeploy |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

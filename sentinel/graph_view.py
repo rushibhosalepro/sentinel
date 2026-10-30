@@ -36,7 +36,9 @@ def graph_snapshot(model, data, props: dict,
                             "quat": data.xquat[bid].copy(),
                             "extent": extent,
                             "properties": list(spec.get("properties", [])),
-                            "owner": spec.get("owner"), "conf": 1.0}
+                            "owner": spec.get("owner"), "conf": 1.0,
+                            "label": spec.get("label", oid),
+                            "prompts": list(spec.get("prompts", []))}
     else:
         for oid, p in perceived.items():
             spec = props["objects"].get(oid, {})
@@ -46,7 +48,9 @@ def graph_snapshot(model, data, props: dict,
                             "properties": list(
                                 spec.get("properties", [])),
                             "owner": spec.get("owner"),
-                            "conf": float(p["conf"])}
+                            "conf": float(p["conf"]),
+                            "label": spec.get("label", oid),
+                            "prompts": list(spec.get("prompts", []))}
     counter = None
     try:
         gid = model.geom("counter_top").id

@@ -198,6 +198,53 @@ def test_typo_four_letter_words_need_one_edit():
     assert "instruction_typo" not in _fired(v)
 
 
+def _grasp_plan(oid, pos):
+    cx, cy, cz = (float(v) for v in pos)
+    return [_step(0, "move_to", {"pose": [cx, cy, cz + 0.15, *DOWN]}),
+            _step(1, "move_to", {"pose": [cx, cy, cz + 0.03, *DOWN]}),
+            _step(2, "grasp", {"object_id": oid}),
+            _step(3, "move_to", {"pose": [cx, cy, cz + 0.15, *DOWN]}),
+            _step(4, "stop", {})]
+
+
+def test_unknown_object_blue_mug_asks():
+    model, data, _, graph = _fresh()
+    plan = _grasp_plan("cup", graph["objects"]["cup"]["pos"])
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    assert "cup" in set(motion["held"])
+    v = check(motion, graph, load_rulebook(),
+              instruction="hand me the blue mug")
+    assert v["kind"] == "ASK"
+    assert "instruction_unknown_object" in _fired(v)
+    hit = next(f for f in v["findings"]
+               if f["rule"] == "instruction_unknown_object")
+    assert hit["detail"] == ("I can't see a blue mug - "
+                             "did you mean the cup?")
+    assert v["feedback"] is None  # unfixable: straight to the owner
+
+
+def test_unknown_object_bare_synonym_allows():
+    model, data, _, graph = _fresh()
+    plan = _grasp_plan("cup", graph["objects"]["cup"]["pos"])
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    v = check(motion, graph, load_rulebook(), instruction="hand me the mug")
+    assert "instruction_unknown_object" not in _fired(v)
+    assert v["kind"] == "ALLOW"
+
+
+def test_unknown_object_appel_still_asks_typo():
+    model, data, _, graph = _fresh()
+    plan = _grasp_plan("apple", graph["objects"]["apple"]["pos"])
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    v = check(motion, graph, load_rulebook(), instruction="give me the appel")
+    assert v["kind"] == "ASK"
+    assert "instruction_typo" in _fired(v)
+    assert "instruction_unknown_object" not in _fired(v)
+
+
 def test_check_runs_under_100ms():
     motion, graph = _fixture_motion("trick_skip_handto.json")
     rules = load_rulebook()

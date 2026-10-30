@@ -482,6 +482,94 @@ def _edit_distance(a: str, b: str, cap: int = 2) -> int:
     return prev[-1]
 
 
+# C-10: instruction nouns that are not graph ids/labels but name a
+# specific object anyway. Identity entries (phone, laptop) pin the
+# vocabulary explicitly.
+OBJECT_SYNONYMS = {"mug": "cup", "glass": "wine_glass",
+                   "pills": "pill_bottle", "phone": "phone",
+                   "laptop": "laptop"}
+# Only these words count as object adjectives: "blue mug" must ASK,
+# but "move the cup" must not treat "move" as one.
+ADJECTIVES = frozenset({
+    "red", "orange", "yellow", "green", "blue", "purple", "pink",
+    "brown", "black", "white", "grey", "gray", "clear", "golden",
+    "silver", "big", "small", "large", "little", "hot", "cold",
+    "full", "empty", "clean",
+})
+DETERMINERS = frozenset({"the", "a", "an", "my", "your", "this",
+                         "that"})
+
+
+def _unknown_object_finding(motion, graph, instruction: str):
+    """C-10: instruction names a described object that is not there.
+
+    "hand me the blue mug" while the plan grasps the cup: the head
+    noun resolves (mug~cup) but "blue" matches nothing about the cup,
+    so the plan is acting on a guess -> ASK the owner instead of
+    executing it. Bare synonyms ("hand me the mug") ALLOW. Heads
+    resolve via graph ids/labels + OBJECT_SYNONYMS, adjectives match
+    against id + label + prompt tokens. Plain string matching, no LLM.
+    """
+    import re
+
+    held = [h for h in R.held_ids(motion) if h in graph["objects"]]
+    if not held:
+        return None
+    objects = graph["objects"]
+    head_of = {}
+    for oid in objects:
+        head_of.setdefault(oid, oid)
+        for tok in oid.split("_"):
+            head_of.setdefault(tok, oid)
+    for oid, spec in objects.items():
+        label = spec.get("label", "") if isinstance(spec, dict) else ""
+        for tok in re.findall(r"[a-z]+", str(label).lower()):
+            head_of.setdefault(tok, oid)
+    for word, oid in OBJECT_SYNONYMS.items():
+        if oid in objects:
+            head_of.setdefault(word, oid)
+    names = {}
+    for oid, spec in objects.items():
+        toks = set(oid.split("_"))
+        if isinstance(spec, dict):
+            toks.update(re.findall(
+                r"[a-z]+", str(spec.get("label", "")).lower()))
+            for p in spec.get("prompts", []):
+                toks.update(re.findall(r"[a-z]+", str(p).lower()))
+        names[oid] = toks
+    words = re.findall(r"[a-z]+", instruction.lower())
+    for i, w in enumerate(words):
+        if w not in head_of:
+            continue
+        oid = head_of[w]
+        j = i - 1
+        while j >= 0 and words[j] in DETERMINERS:
+            j -= 1
+        if j < 0 or words[j] not in ADJECTIVES:
+            continue
+        adj = words[j]
+        if adj in names[oid]:
+            continue
+        acted = oid if oid in held else held[0]
+        phrase = f"{adj} {w}"
+        return {"rule": "instruction_unknown_object", "node": None,
+                "t": 0.0,
+                "detail": f"I can't see a {phrase} - "
+                          f"did you mean the {acted}?",
+                "_verdict": "ASK", "_hard": False, "_hint": None,
+                "_fixable": False, "_origin": "seed",
+                "_reason": f"instruction names {phrase!r}, which matches "
+                           f"nothing in the scene; the plan acts on {acted}",
+                "_predicates": {"instruction_phrase": phrase,
+                                "acted_on": acted},
+                "_steps": [],
+                "_relations": [{"subj": acted, "rel": "GUESSED_FOR",
+                                "obj": phrase}],
+                "_params": {"instruction_phrase": phrase},
+                "_learned_from": []}
+    return None
+
+
 def _typo_finding(motion, graph, instruction: str):
     """B-10: instruction names a missing object; the plan uses a match.
 
@@ -591,6 +679,9 @@ def check(motion, graph, rules=None, instruction=None) -> dict:
         typo = _typo_finding(motion, graph, instruction)
         if typo is not None:
             findings.append(typo)
+        unknown = _unknown_object_finding(motion, graph, instruction)
+        if unknown is not None:
+            findings.append(unknown)
     kind = "ALLOW"
     for f in findings:
         if SEVERITY[f["_verdict"]] > SEVERITY[kind]:
