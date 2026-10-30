@@ -176,6 +176,7 @@ export const Shot: React.FC<{
   holdStamps?: Stamp[]; // keyed to composition frames, shown during delay
   flash?: { at: number; len: number };
   dimHold?: boolean;
+  pushIn?: number; // extra zoom over 8 s while frozen, e.g. 0.15
 }> = ({
   name,
   frames,
@@ -190,6 +191,7 @@ export const Shot: React.FC<{
   holdStamps = [],
   flash,
   dimHold = false,
+  pushIn = 0,
 }) => {
   const frame = useCurrentFrame();
   const h = (width * SRC_H) / SRC_W;
@@ -200,13 +202,20 @@ export const Shot: React.FC<{
   const ended = !frozen && src >= frames - 1;
   if (ended) src = frames - 1;
 
-  const scale = zoom
-    ? interpolate(src, [zoom.from, zoom.to], [1, zoom.scale], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp",
-        easing: Easing.inOut(Easing.cubic),
-      })
-    : 1;
+  const frozenFor = frozen ? frame - delay - (freezeAt! - startFrom) : 0;
+  const push = interpolate(frozenFor, [0, 240], [1, 1 + pushIn], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const scale =
+    push *
+    (zoom
+      ? interpolate(src, [zoom.from, zoom.to], [1, zoom.scale], {
+          extrapolateLeft: "clamp",
+          extrapolateRight: "clamp",
+          easing: Easing.inOut(Easing.cubic),
+        })
+      : 1);
   const origin = zoom
     ? `${(zoom.cx / SRC_W) * 100}% ${(zoom.cy / SRC_H) * 100}%`
     : "50% 50%";

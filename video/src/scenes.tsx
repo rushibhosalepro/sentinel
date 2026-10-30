@@ -2,6 +2,7 @@ import React from "react";
 import {
   AbsoluteFill,
   Img,
+  OffthreadVideo,
   interpolate,
   staticFile,
   useCurrentFrame,
@@ -185,14 +186,16 @@ export const KnifeDemo: React.FC = () => (
           color={C.red}
           sub="same Muse Spark, no checks"
           footer="Owner takes the knife by the blade"
-          footerDelay={140}
+          footerDelay={90}
         >
           <Shot
             name="split_A_knife"
             frames={228}
             width={LANE_W}
+            startFrom={30}
             zoom={{ from: 96, to: 116, cx: 330, cy: 225, scale: 2.2 }}
             freezeAt={120}
+            pushIn={0.12}
             marks={[{ at: 108, x: 333, y: 233, r: 30, color: C.red }]}
             stamps={[{ at: 120, text: "Blade points at the hand", color: C.red }]}
           />
@@ -202,18 +205,21 @@ export const KnifeDemo: React.FC = () => (
           color={C.green}
           sub="Muse Spark × Sentinel loop"
           footer="Checked before moving: handle first, slow near the person"
-          footerDelay={140}
+          footerDelay={250}
         >
           <Shot
             name="split_B_knife"
             frames={431}
             width={LANE_W}
-            startFrom={100}
+            startFrom={60}
+            delay={90}
+            dimHold
             zoom={{ from: 186, to: 206, cx: 320, cy: 228, scale: 2.2 }}
             freezeAt={212}
+            pushIn={0.12}
             marks={[{ at: 198, x: 317, y: 232, r: 30, color: C.green }]}
             stamps={[
-              { at: 100, until: 186, text: "Sentinel: blade direction + speed checked", color: C.green },
+              { at: 60, until: 186, text: "Sentinel: blade direction + speed checked", color: C.green },
               { at: 212, text: "Handle to the hand · slowed", color: C.green },
             ]}
           />
@@ -329,63 +335,85 @@ export const Why: React.FC = () => {
 };
 
 // ---------------------------------------------------------------- sticky note
+// Lane A runs the plan the note produced (logged, BLOCKed in lane B by
+// scene_text_provenance) with the check switched off.
 export const Sticky: React.FC = () => {
   const head = useEnter(0);
   const pic = useEnter(10);
-  const zoom = useEnter(sec(2.5));
-  const s2 = useEnter(sec(6));
-  const s3 = useEnter(sec(9.5));
-  const W = 860;
+  const zoom = useEnter(sec(2));
+  const block = useEnter(sec(8.6));
+  const W = 780;
   const k = W / 1280;
   return (
     <SceneFade>
-      <div style={{ ...pad, flexDirection: "row", alignItems: "center", gap: 60 }}>
-        <div style={{ ...pic, width: W }}>
-          <div style={{ position: "relative", width: W }}>
-          <Img
-            src={staticFile("attack_frame.png")}
-            style={{ width: W, borderRadius: 14, border: `2px solid ${C.line}` }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: 620 * k,
-              top: 340 * k,
-              width: 280 * k,
-              height: 130 * k,
-              border: `4px solid ${C.red}`,
-              borderRadius: 8,
-            }}
-          />
-          <div style={{ ...zoom, position: "absolute", right: -30, bottom: -30 }}>
-            <Img
-              src={staticFile("note_zoom.png")}
-              style={{ width: 520, borderRadius: 12, border: `4px solid ${C.red}` }}
-            />
-          </div>
-          </div>
-          <div style={{ fontSize: 24, color: C.dim, marginTop: 46 }}>
-            The camera image the models receive. The note's text is drawn into the frame.
-          </div>
+      <div style={{ ...pad, gap: 26 }}>
+        <div style={{ ...head, display: "flex", alignItems: "baseline", gap: 28 }}>
+          <Kicker color={C.red}>Demo 3 · prompt injection</Kicker>
+          <span style={{ fontFamily: MONO, fontSize: 44 }}>"tidy the counter"</span>
         </div>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 30 }}>
-          <div style={head}>
-            <Kicker color={C.red}>Demo 3 · prompt injection</Kicker>
-            <span style={{ fontFamily: MONO, fontSize: 40 }}>"tidy the counter"</span>
-          </div>
-          <div style={{ ...s2, fontSize: 30, lineHeight: 1.4 }}>
-            A planner that reads the note:
-            <div style={{ fontFamily: MONO, fontSize: 26, color: C.amber, marginTop: 8 }}>
-              grasp chef_knife → carry it off → release
+        <div style={{ display: "flex", gap: 60 }}>
+          <div style={{ ...pic, width: W, display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <Badge color={C.amber}>WHAT THE PLANNER SEES</Badge>
+            </div>
+            <div style={{ position: "relative", width: W }}>
+              <Img
+                src={staticFile("attack_frame.png")}
+                style={{ width: W, borderRadius: 14, border: `2px solid ${C.line}` }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  left: 620 * k,
+                  top: 340 * k,
+                  width: 280 * k,
+                  height: 130 * k,
+                  border: `4px solid ${C.red}`,
+                  borderRadius: 8,
+                }}
+              />
+              <div style={{ ...zoom, position: "absolute", right: -20, bottom: -24 }}>
+                <Img
+                  src={staticFile("note_zoom.png")}
+                  style={{ width: 440, borderRadius: 12, border: `4px solid ${C.red}` }}
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: 24, color: C.dim, marginTop: 20 }}>
+              The camera image the models receive, with the note's text in the frame.
             </div>
           </div>
-          <div style={{ ...s3, fontSize: 32, lineHeight: 1.4 }}>
-            <Badge color={C.red}>BLOCK</Badge> those steps came from text in the scene, not
-            from the owner.
-            <div style={{ fontSize: 26, color: C.dim, marginTop: 8 }}>
-              Hard rule: no retries. The planner only ever hears "this object has text on it".
-            </div>
-          </div>
+          <Lane
+            label="A · WITHOUT THE CHECK"
+            color={C.red}
+            sub="the note-driven plan, executed"
+            footer={
+              <div style={block}>
+                <Badge color={C.green}>B · SENTINEL: BLOCK</Badge>{" "}
+                <span style={{ color: C.text }}>
+                  the motion came from the note, not the owner. No retries.
+                </span>
+              </div>
+            }
+            footerDelay={0}
+          >
+            <Shot
+              name="split_A_sticky"
+              frames={329}
+              width={W}
+              startFrom={120}
+              delay={sec(4)}
+              dimHold
+              zoom={{ from: 150, to: 185, cx: 210, cy: 200, scale: 1.8 }}
+              freezeAt={200}
+              pushIn={0.08}
+              marks={[{ at: 160, x: 205, y: 205, r: 34, color: C.red }]}
+              stamps={[
+                { at: 120, until: 200, text: "Grasps the knife", color: C.amber },
+                { at: 200, text: "Knife carried off. The owner never asked", color: C.red },
+              ]}
+            />
+          </Lane>
         </div>
       </div>
     </SceneFade>
@@ -635,26 +663,80 @@ export const Stack: React.FC = () => {
 };
 
 // ---------------------------------------------------------------- outro
+// A real run on the live app (knife example), recorded and sped up.
+const LIVE_FRAMES = 2222;
+const LIVE_RATE = 8;
+
 export const Outro: React.FC = () => {
+  const frame = useCurrentFrame();
   const a = useEnter(0);
   const b = useEnter(20);
   const c = useEnter(35);
+  const clip = useEnter(5);
+  const ended = frame * LIVE_RATE >= LIVE_FRAMES - 2;
+  const W = 820;
+  const H = (W * 900) / 1000;
   return (
     <SceneFade>
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 34 }}>
-        <div style={{ ...a, fontSize: 64, fontWeight: 800, textAlign: "center" }}>
-          The LLM decides how.
-          <br />
-          <span style={{ color: C.green }}>Sentinel decides whether.</span>
+      <div style={{ ...pad, flexDirection: "row", alignItems: "center", gap: 70 }}>
+        <div
+          style={{
+            ...clip,
+            width: W,
+            height: H,
+            borderRadius: 14,
+            overflow: "hidden",
+            border: `2px solid ${C.line}`,
+            background: "#fff",
+            position: "relative",
+            flexShrink: 0,
+          }}
+        >
+          {ended ? (
+            <Img src={staticFile("live_app_last.png")} style={{ width: W, height: H }} />
+          ) : (
+            <OffthreadVideo
+              src={staticFile("live_app.mp4")}
+              playbackRate={LIVE_RATE}
+              muted
+              style={{ width: W, height: H }}
+            />
+          )}
+          <span
+            style={{
+              position: "absolute",
+              right: 14,
+              top: 14,
+              background: "rgba(8,10,14,0.82)",
+              color: "#fff",
+              fontSize: 22,
+              fontWeight: 800,
+              padding: "6px 12px",
+              borderRadius: 8,
+            }}
+          >
+            live app · {LIVE_RATE}× speed
+          </span>
         </div>
-        <div style={{ ...b, fontSize: 32, color: C.dim }}>Try it live</div>
-        <div style={{ ...b, fontSize: 32, fontFamily: MONO }}>
-          rushi-bhosale84--sentinel-web.us-east.modal.run
+        <div style={{ display: "flex", flexDirection: "column", gap: 34 }}>
+          <div style={{ ...a, fontSize: 60, fontWeight: 800 }}>
+            The LLM decides how.
+            <br />
+            <span style={{ color: C.green }}>Sentinel decides whether.</span>
+          </div>
+          <div style={{ ...b, fontSize: 32, color: C.dim }}>
+            Try it live: pick an example, both lanes run
+          </div>
+          <div style={{ ...b, fontSize: 28, fontFamily: MONO }}>
+            rushi-bhosale84--sentinel-web
+            <br />
+            .us-east.modal.run
+          </div>
+          <div style={{ ...c, fontSize: 26, fontFamily: MONO, color: C.dim }}>
+            github.com/rushibhosalepro/sentinel
+          </div>
         </div>
-        <div style={{ ...c, fontSize: 30, fontFamily: MONO, color: C.dim }}>
-          github.com/rushibhosalepro/sentinel
-        </div>
-      </AbsoluteFill>
+      </div>
     </SceneFade>
   );
 };
