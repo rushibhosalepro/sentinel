@@ -81,7 +81,12 @@ app = modal.App(APP_NAME)
     secrets=[modal.Secret.from_name(SECRETS_NAME)],
     max_containers=1,
     timeout=900,
+    # stay warm 20 min after the last visit (cold start is ~45 s)
+    scaledown_window=1200,
 )
+# Each open websocket is a long-lived input; without this one tab holds
+# the only container and every other request queues behind it.
+@modal.concurrent(max_inputs=100)
 @modal.asgi_app()
 def web():
     import os
