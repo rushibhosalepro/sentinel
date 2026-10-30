@@ -275,7 +275,8 @@ def _motion_path(motion: dict, findings: list,
 
 
 def _error_entry(attempt: int, model_name: str, t0: float, n_steps: int,
-                 err: str, latency: float | None = None) -> dict:
+                 err: str, latency: float | None = None,
+                 steps: list | None = None) -> dict:
     """rounds_log entry for a round that died before a verdict (D-04)."""
     if latency is None:
         latency = round(time.perf_counter() - t0, 1)
@@ -284,7 +285,8 @@ def _error_entry(attempt: int, model_name: str, t0: float, n_steps: int,
             "graph": None,
             "proposal": {"model": model_name, "latency_s": latency,
                          "n_steps": n_steps},
-            "feedback_note": None, "error": err}
+            "feedback_note": None, "error": err,
+            "steps": steps if steps is not None else []}
 
 
 ASK_TIMEOUT_S = 60.0
@@ -455,7 +457,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             if err is not None:
                 _print_plan(steps)
                 entry = _error_entry(attempt, model_name, t0, len(steps),
-                                     err, latency=latency)
+                                     err, latency=latency, steps=steps)
                 rounds_log.append(entry)
                 learner_events.append_event({
                     "kind": "build_surprise",
@@ -510,7 +512,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                     err = f"Sentinel error: {e}"
                     trace.append(f"Round {attempt}: ERROR Sentinel error")
                     entry = _error_entry(attempt, model_name, t0, len(steps),
-                                         err, latency=latency)
+                                         err, latency=latency, steps=steps)
                     entry["graph"] = graph
                     rounds_log.append(entry)
                     learner_events.append_event({
@@ -529,6 +531,7 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                 + (f" {rules}" if rules else "")
             log_entry = {"round": attempt, "kind": verdict["kind"],
                          "rules": rules.split(",") if rules else [],
+                         "steps": steps,
                          "findings": verdict["findings"],
                          "feedback": verdict["feedback"],
                          "why": verdict.get("why_path"),
@@ -794,8 +797,18 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             path_event,
             plan_event,
             proposal_event,
+            rejected_event,
             verdict_event,
             why_path_for,
+        )
+        from dashboard.split_steps import (
+            describe_plan,
+            join_details,
+            lane_b_footer,
+            object_tops,
+            people_xy,
+            rejected_line,
+            script_turned_hids,
         )
         res = results.get()
         trace = list(res.get("trace", []))
@@ -846,8 +859,23 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             print(" -> ".join(trace))
         for f in verdict["findings"]:
             print(f"  ! {f['rule']}: {f['detail']}")
-        emit(plan_event(steps, res["rounds"]))
+        tops = object_tops(model, data, props)
+        pxy = people_xy(model, data)
+        rlog = res.get("rounds_log") or []
+        rejected = [(e["round"], e["kind"]) for e in rlog[:-1]
+                    if e.get("kind") in ("BLOCK", "ASK")]
+        rows = describe_plan(steps, props, tops, pxy,
+                             turned=script_turned_hids(script),
+                             rejected=rejected)
+        emit(plan_event(steps, res["rounds"], rows=rows))
         emit_rounds()
+        for e in rlog[:-1]:
+            if e.get("kind") == "ALLOW" or not e.get("steps"):
+                continue
+            emit(rejected_event(
+                e["round"], e["kind"], rejected_line(e, props),
+                describe_plan(e["steps"], props, tops, pxy,
+                              sentinel_notes=False)))
         ask = None
         if verdict["kind"] != "ALLOW":
             if verdict["kind"] == "ASK" and ask_handler is not None \
@@ -873,19 +901,24 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                 if decision == "approve":
                     print(f"Sentinel: ASK {ask_id} approved by owner, "
                           f"executing")
-                    return steps, script, res["rounds"], trace, ask
+                    return steps, script, res["rounds"], trace, ask, rows
                 print(f"Sentinel: ASK {ask_id} denied (not moving)")
             else:
                 print(f"Sentinel: {verdict['kind']} (not moving)")
             jobs.put(None)
             if render:
                 _render_idle_clip(model, data, out_path, fps, sink=sink)
+            footer = lane_b_footer(
+                verdict["kind"], rows,
+                join_details(verdict.get("findings"),
+                             verdict.get("why_path")), props)
             emit(done_event(verdict["kind"],
-                            {"trace": trace[-4:], "ask": ask}))
+                            {"trace": trace[-4:], "ask": ask,
+                             "footer": footer}))
             raise SystemExit(1)
-        return steps, script, res["rounds"], trace, ask
+        return steps, script, res["rounds"], trace, ask, rows
 
-    _, script, rounds, trace, ask = take_result()
+    _, script, rounds, trace, ask, plan_rows = take_result()
     dt = 1.0 / fps
     out = Path(out_path)
     if render:
@@ -905,9 +938,11 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     f6_done = f6_at is None
     segments = script["segments"]
     from contextlib import nullcontext
+    from dashboard.split_steps import handover_step_id
     writer_ctx = imageio.get_writer(out, fps=fps, codec="libx264",
                                     quality=8) if render \
         else nullcontext(None)
+    cur_step = None
     try:
         with writer_ctx as writer:
             while seg_i < len(segments):
@@ -944,6 +979,9 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                         data.qpos[:] = frames[idx]
                         mujoco.mj_forward(model, data)
                         held_now = motion["held"][idx]
+                        sub = motion.get("sample_steps") or []
+                        cur_step = sub[idx] if idx < len(sub) \
+                            else None
                         seg_motion, seg_tau = motion, tau
                         _step_person(model, data, person, vnow, dt)
                         if seg_k * dt >= dur:
@@ -952,7 +990,11 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                         else:
                             seg_k += 1
                     else:
-                        _, done = step_handover(lh, dt)
+                        phase, done = step_handover(lh, dt)
+                        subs = lh.motion.get("sample_steps") or []
+                        cur_step = handover_step_id(
+                            payload["hid"], phase,
+                            subs[-1] if subs else payload["hid"])
                         held_now = lh.obj if not lh.transferred else None
                         seg_motion, seg_tau = lh.motion, lh.tau
                         suppressed = lh.tau >= lh.t_offer
@@ -1082,7 +1124,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "cost_log": cost_log,
                                           "verdict_final": verdict_final,
                                           "repeat": repeat})
-                                _, script, rounds, trace, ask = take_result()
+                                _, script, rounds, trace, ask, plan_rows = \
+                                    take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
                                 halt, held_now = None, None
@@ -1109,7 +1152,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                         perceived if perception == "sam" else None)
                     emit(frame_event(
                         encode_jpeg_b64(video_frame), boxes,
-                        "sam" if perception == "sam" else "truth", vnow))
+                        "sam" if perception == "sam" else "truth", vnow,
+                        step=cur_step))
                 frame_i += 1
                 vnow += dt
                 data.time = vnow
@@ -1129,11 +1173,12 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     print(f"saved {out}" if render else "done (render off)")
     if sink is not None:
         from dashboard.events import done_event
-        emit(done_event("complete", {"takers": took, "rounds": rounds,
-                                     "duration_s": round(vnow, 2),
-                                     "ask": ask,
-                                     "motion": _motion_summary(
-                                         script["motion"])}))
+        from dashboard.split_steps import lane_b_footer
+        emit(done_event("complete", {
+            "takers": took, "rounds": rounds,
+            "duration_s": round(vnow, 2), "ask": ask,
+            "footer": lane_b_footer("ALLOW", plan_rows, [], props),
+            "motion": _motion_summary(script["motion"])}))
 
 
 def main() -> None:

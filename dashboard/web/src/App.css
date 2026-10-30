@@ -284,6 +284,67 @@
   color: #1a7f37;
 }
 
+.steps {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.steps li {
+  word-break: break-word;
+}
+
+.step-ic {
+  display: inline-block;
+  width: 1.1em;
+}
+
+.st-done .step-ic {
+  color: #1a7f37;
+}
+
+.st-running {
+  font-weight: bold;
+}
+
+.st-pending {
+  color: #555;
+}
+
+.st-pending .step-ic {
+  color: #999;
+}
+
+.greyed {
+  opacity: 0.45;
+}
+
+.step-note-green {
+  color: #1a7f37;
+  font-size: 0.85rem;
+}
+
+.step-note-red {
+  color: #cf222e;
+  font-size: 0.85rem;
+}
+
+.rejected {
+  margin: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.rejected summary {
+  cursor: pointer;
+  color: #555;
+}
+
+.rejected-rows {
+  color: #555;
+  margin-top: 0.25rem;
+}
+
 .instruction-box {
   width: 100%;
   box-sizing: border-box;

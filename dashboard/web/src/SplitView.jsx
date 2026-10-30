@@ -12,6 +12,60 @@ const CHIP_GROUPS = [
 
 const MAX_CHARS = 200
 
+function parentOf(id) {
+  return String(id).split(':')[0]
+}
+
+function StepList({ rows, current, ended, ok, shadow }) {
+  if (!rows || rows.length === 0) return null
+  const ids = rows.map((r) => r.id)
+  const cur = current ? parentOf(current) : null
+  const k = cur ? ids.indexOf(cur) : -1
+  return (
+    <ol className="steps">
+      {rows.map((r, i) => {
+        let st = 'pending'
+        if (ended && ok) st = 'done'
+        else if (k >= 0) st = i < k ? 'done' : i === k ? 'running' : 'pending'
+        const greyed = ended && !ok && (k < 0 || i >= k)
+        const ic = st === 'done' ? '✓' : st === 'running' ? '▶' : '○'
+        const extra = shadow && shadow[r.id]
+        return (
+          <li
+            key={r.id}
+            className={`st-${st}${greyed ? ' greyed' : ''}`}
+            title={JSON.stringify(r.raw)}
+          >
+            <span className="step-ic">{ic}</span> {r.text}
+            {r.note && <span className="step-note-green"> {r.note}</span>}
+            {extra && <span className="step-note-red"> {extra}</span>}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function RejectedPlans({ items }) {
+  if (!items || items.length === 0) return null
+  return (
+    <div className="rejected-wrap">
+      {items.map((r) => (
+        <details key={r.round} className="rejected">
+          <summary>{r.plain}</summary>
+          <ol className="steps rejected-rows">
+            {r.rows.map((row) => (
+              <li key={row.id} title={JSON.stringify(row.raw)}>
+                {row.text}
+              </li>
+            ))}
+          </ol>
+        </details>
+      ))}
+    </div>
+  )
+}
+
 function bFooter(rounds, doneB) {
   const nums = Object.keys(rounds)
     .map(Number)
@@ -51,6 +105,12 @@ export default function SplitView() {
   const [imageA, setImageA] = useState(null)
   const [imageB, setImageB] = useState(null)
   const [outcomeA, setOutcomeA] = useState(null)
+  const [planA, setPlanA] = useState([])
+  const [planB, setPlanB] = useState([])
+  const [rejectedB, setRejectedB] = useState([])
+  const [curA, setCurA] = useState(null)
+  const [curB, setCurB] = useState(null)
+  const [doneA, setDoneA] = useState(null)
   const [roundsB, setRoundsB] = useState({})
   const [haltsB, setHaltsB] = useState([])
   const [clearsB, setClearsB] = useState([])
@@ -66,6 +126,12 @@ export default function SplitView() {
     setImageA(null)
     setImageB(null)
     setOutcomeA(null)
+    setPlanA([])
+    setPlanB([])
+    setRejectedB([])
+    setCurA(null)
+    setCurB(null)
+    setDoneA(null)
     setRoundsB({})
     setHaltsB([])
     setClearsB([])
@@ -102,15 +168,32 @@ export default function SplitView() {
       if (ev.lane === 'A') {
         if (ev.type === 'frame') {
           setImageA(`data:image/jpeg;base64,${ev.image}`)
+          if (ev.step !== undefined) setCurA(ev.step)
+        } else if (ev.type === 'plan') {
+          setPlanA(ev.rows || [])
         } else if (ev.type === 'done') {
           setOutcomeA(
             (ev.detail && ev.detail.outcome) || `done: ${ev.status}`,
           )
+          setDoneA({ status: ev.status, detail: ev.detail })
         }
         return
       }
       if (ev.type === 'frame') {
         setImageB(`data:image/jpeg;base64,${ev.image}`)
+        if (ev.step !== undefined) setCurB(ev.step)
+      } else if (ev.type === 'plan') {
+        setPlanB(ev.rows || [])
+      } else if (ev.type === 'rejected') {
+        setRejectedB((prev) => [
+          ...prev,
+          {
+            round: ev.round,
+            kind: ev.kind,
+            plain: ev.plain,
+            rows: ev.rows || [],
+          },
+        ])
       } else if (ev.type === 'proposal') {
         mergeRound(ev.round, {
           proposal: {
@@ -300,6 +383,13 @@ export default function SplitView() {
               <p>loading scene…</p>
             </div>
           )}
+          <StepList
+            rows={planA}
+            current={curA}
+            ended={doneA !== null}
+            ok={doneA !== null && doneA.status === 'complete'}
+            shadow={(doneA && doneA.detail && doneA.detail.shadow) || {}}
+          />
           <p className="footer-a">
             {outcomeA || 'ready: same Muse Spark, no Sentinel'}
           </p>
@@ -321,7 +411,17 @@ export default function SplitView() {
               <p>loading scene…</p>
             </div>
           )}
-          <p className="footer-b">{bFooter(roundsB, doneB)}</p>
+          <RejectedPlans items={rejectedB} />
+          <StepList
+            rows={planB}
+            current={curB}
+            ended={doneB !== null}
+            ok={doneB !== null && doneB.status === 'complete'}
+          />
+          <p className="footer-b">
+            {(doneB && doneB.detail && doneB.detail.footer) ||
+              bFooter(roundsB, doneB)}
+          </p>
         </div>
       </div>
       {strip && (

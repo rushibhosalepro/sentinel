@@ -261,6 +261,8 @@ def play_prims(model, data, script: dict, out_path: Path,
             for kind, payload in script["segments"]:
                 assert kind == "prims", f"naive cannot run {kind}"
                 frames, times = payload["frames"], payload["times"]
+                subs = (payload.get("motion") or {}).get(
+                    "sample_steps") or []
                 n = max(int(float(times[-1]) * fps), 1)
                 for i in range(n):
                     tau = min(i / fps, float(times[-1]))
@@ -277,8 +279,11 @@ def play_prims(model, data, script: dict, out_path: Path,
                             encode_jpeg_b64,
                             frame_event,
                         )
-                        sink(frame_event(encode_jpeg_b64(img), [], "truth",
-                                         frame_i / fps))
+                        sink(frame_event(
+                            encode_jpeg_b64(img), [], "truth",
+                            frame_i / fps,
+                            step=subs[idx] if idx < len(subs)
+                            else None))
                     frame_i += 1
     finally:
         with RENDER_LOCK:

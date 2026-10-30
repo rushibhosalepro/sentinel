@@ -23,9 +23,10 @@ PROPOSAL = "proposal"
 FEEDBACK = "feedback"
 ASK = "ask"
 PATH = "path"
+REJECTED = "rejected"
 
 ALL_TYPES = (FRAME, GRAPH, PLAN, VERDICT, HALT, CLEAR, DONE,
-             PROPOSAL, FEEDBACK, ASK, PATH)
+             PROPOSAL, FEEDBACK, ASK, PATH, REJECTED)
 
 
 def to_jsonable(obj):
@@ -48,10 +49,15 @@ def to_jsonable(obj):
     return str(obj)
 
 
-def frame_event(image_b64: str, boxes: list, source: str, t: float) -> dict:
-    """A video frame: JPEG base64 + 2D boxes [{id,x0,y0,x1,y1,conf}]."""
+def frame_event(image_b64: str, boxes: list, source: str, t: float,
+                step: str | None = None) -> dict:
+    """A video frame: JPEG base64 + 2D boxes [{id,x0,y0,x1,y1,conf}].
+
+    step is the executing plan step id (handover sub-steps read
+    "<hand_to id>:<phase>"); None outside execution (idle clips).
+    """
     return {"type": FRAME, "image": image_b64, "boxes": boxes,
-            "source": source, "t": round(t, 2)}
+            "source": source, "t": round(t, 2), "step": step}
 
 
 def graph_event(graph: dict) -> dict:
@@ -59,9 +65,14 @@ def graph_event(graph: dict) -> dict:
     return {"type": GRAPH, "graph": to_jsonable(graph)}
 
 
-def plan_event(steps: list, rounds: int) -> dict:
-    """The accepted plan steps (after any replans)."""
-    return {"type": PLAN, "steps": to_jsonable(steps), "rounds": rounds}
+def plan_event(steps: list, rounds: int, rows: list | None = None) -> dict:
+    """The accepted plan steps (after any replans).
+
+    rows (D-12) are the plain-language [{id, text, note, raw, who}]
+    rows; None when the caller has no describer context.
+    """
+    return {"type": PLAN, "steps": to_jsonable(steps), "rounds": rounds,
+            "rows": to_jsonable(rows if rows is not None else [])}
 
 
 def verdict_event(round_no: int, kind: str, findings: list,
@@ -107,6 +118,17 @@ def path_event(round_no: int, points: list, fires: list) -> dict:
     finding's t (drawn red)."""
     return {"type": PATH, "round": round_no,
             "points": to_jsonable(points), "fires": to_jsonable(fires)}
+
+
+def rejected_event(round_no: int, kind: str, plain: str,
+                   rows: list) -> dict:
+    """A non-ALLOW round's plan in plain rows (D-12, collapsed in UI).
+
+    plain is "Round N rejected: <rule in plain words>" (BLOCK/ASK) or
+    "Round N failed: <short error>" (ERROR).
+    """
+    return {"type": REJECTED, "round": round_no, "kind": kind,
+            "plain": plain, "rows": to_jsonable(rows)}
 
 
 def halt_event(t: float, dist_cm: float, what: str,

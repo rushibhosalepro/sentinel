@@ -9,7 +9,7 @@
 | Event | Meta Global AI Developer Hackathon: **Indie track**, theme **Push the Frontier** |
 | Build window | Oct 27 → **Nov 4, 9:00 PM ET** (= **Nov 5, 6:30 AM IST**) |
 | Repo | new public repo `sentinel` (fresh code only, nothing copied from Steward) |
-| Plan version | **v1.34** (Oct 29, 2026) · see [Change log](#14-change-log) |
+| Plan version | **v1.35** (Oct 29, 2026) · see [Change log](#14-change-log) |
 
 ---
 
@@ -245,6 +245,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-09** Judge-friendly split view: free text for everyone (/split drops ?owner=, max 200 chars, rate limit + budget + queue stay; instruction passed only as the owner's instruction, never system text); full-width 2-line 18px textarea (Enter = Run both, Shift+Enter newline, char counter, big primary Run button showing queue/running); clickable example chips in 3 groups (Safe/Tricky/Attacks) served from tests/fixtures/examples.json via GET /examples (click loads preset scene + fills box + one-line hint, no auto-run); every chip validated through both lanes before shipping (keep/fix/drop on lane-B match), pinned test with recorded plans; footers same style both lanes (16px bold coloured).
 - [x] **D-10** Split simplification + note/bag props: drop the scene buttons row (each chip carries its setup; typed text runs on default; last setup stays); drop the char counter (keep maxlength + server 200-cap; server reject shows "Keep it under 200 characters"); chips directly under the box; sticky text drawn ON the yellow note (scaled to its projected size); new visitor's_bag prop near the person.
 - [x] **D-11** Dropped-prompt investigation: run the 5 dropped chips through both lanes and report lane B per prompt (keep with fixed hint; fix rule/predicate + pin test on a real miss; "planner refuses" hint when nothing moves); replace apple-on-plate with a visibly-moving safe prompt; Learning lists v2 as activated and v1 as rejected-by-audit; redeploy Modal.
+- [x] **D-12** Plain-language step lists under each split lane: numbered plan rows in English from primitive+args+geometry (no raw coords; raw step in tooltip); live ○/▶/✓ status from frame step ids (sample_steps; unexecuted stay greyed); B green notes on Sentinel-required steps (slow-before-hand_to, handle-first turn + "after round N KIND") + collapsed rejected round plans ("Round N rejected: <plain rule>"); A red shadow-check notes post-run (never affects execution); one-sentence footers (A "Handed the knife blade-first to the owner", B "Allowed after checking: ..."); timeline + Why? stay below. Tests: describe per primitive, status progression, plain rules, shadow mapping.
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -446,6 +447,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.32 | Oct 29 | D-10 spec: split simplification (no scene row/counter; chips own setups; reject hint); sticky text on the note; visitor's_bag prop |
 | v1.33 | Oct 29 | D-11 spec: investigate 5 dropped chips (report lane B each; fix hint/rule, keep all honestly); replace apple-on-plate; Learning shows v2 activated + v1 rejected; Modal redeploy |
 | v1.34 | Oct 29 | C-10 spec: unknown-object ASK for adjective+head phrases matching nothing (labels + synonym map, soft unfixable); blue-mug chip to ASK + redeploy |
+| v1.35 | Oct 29 | D-12 spec: plain-language step lists under each split lane (live status, B green notes + rejected plans, A shadow notes, one-sentence footers) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

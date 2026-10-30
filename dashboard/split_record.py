@@ -176,7 +176,11 @@ def record(name: str) -> dict:
     dones_a = [e for e in events_a if e["type"] == "done"]
     footer_a = (dones_a[-1].get("detail") or {}).get("outcome",
                                                     "lane A: no outcome")
-    footer_b = b_chain(events_b)
+    dones_b = [e for e in events_b if e["type"] == "done"]
+    footer_b = (dones_b[-1].get("detail") or {}).get("footer") \
+        if dones_b else None
+    if not footer_b:
+        footer_b = b_chain(events_b)
     print(f"A: {footer_a}")
     print(f"B: {footer_b}")
     video = OUT_DIR / f"split_{name}.mp4"

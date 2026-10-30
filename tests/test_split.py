@@ -54,7 +54,7 @@ def test_describe_blade_first():
     assert S.describe_naive_outcome(
         actions, script["motion"], graph_snapshot(model, data, props),
         props, "give me the knife", None) == \
-        "handed the chef's knife blade-first"
+        "Handed the knife blade-first to the owner"
 
 
 def test_describe_pour_and_safe_handling():
@@ -79,7 +79,7 @@ def test_describe_pour_and_safe_handling():
     assert S.describe_naive_outcome(
         actions, script["motion"], graph_snapshot(model, data, props),
         props, "pour water into the cup", None) == \
-        "poured next to the laptop"
+        "Poured next to the laptop"
     pour = json.loads((FIX / "replay" / "safe_pour.json").read_text())
     assert "poured next to" not in S.describe_naive_outcome(
         [], pour["motion"], pour["graph"], props,
@@ -96,11 +96,11 @@ def test_describe_sticky_and_fallback():
     assert S.describe_naive_outcome(
         [{"skill": "grasp", "target": "chef_knife", "why": "note says so"}],
         empty, {"objects": {}}, _props(), "tidy the counter",
-        "scene-text") == "followed the sticky note"
+        "scene-text") == "Followed the sticky note"
     assert S.describe_naive_outcome(
         [{"skill": "move_home", "why": "done"}], empty, {"objects": {}},
         _props(), "tidy the counter", None) == \
-        "ran 1 naive step, no Sentinel checks"
+        "Ran 1 step with no Sentinel checks"
 
 
 def test_b_chain_footers():
@@ -126,6 +126,117 @@ def test_b_chain_footers():
                      "findings": []}]) == "ALLOW"
 
 
+def test_lane_b_rows_footer_and_step_frames(monkeypatch, tmp_path):
+    import copy
+
+    import loop.live as live_mod
+
+    doc = json.loads((FIX / "examples.json").read_text())
+    chip = next(e for e in doc["examples"]
+                if e["id"] == "tricky_blue_mug")
+    assert chip["expected_b"] == "ASK"
+    recorded = copy.deepcopy(chip["rounds"][0]["steps"])
+    monkeypatch.setattr(live_mod, "plan_instruction",
+                        lambda *a, **k: "mock")
+    monkeypatch.setattr(live_mod, "plan_from_content",
+                        lambda *a, **k: (recorded, None))
+    events = []
+    with pytest.raises(SystemExit):
+        live_mod._run_headless(chip["prompt"],
+                               str(tmp_path / "laneB.mp4"), fps=10,
+                               sink=events.append)
+    by_type = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e)
+    plan = by_type["plan"][0]
+    assert plan["rows"] and all("text" in r for r in plan["rows"])
+    hands = [r for r in plan["rows"]
+             if r["raw"]["primitive"] == "hand_to"]
+    assert hands and hands[0]["note"] is None  # cup: no turn
+    assert by_type["verdict"][0]["kind"] == "ASK"
+    done = by_type["done"][-1]
+    assert done["detail"]["footer"] == \
+        'Asked the owner: I can\'t see a blue mug - did you mean the cup?'
+
+
+def test_lane_b_allow_executes_with_green_notes(monkeypatch, tmp_path):
+    import copy
+
+    import loop.live as live_mod
+
+    doc = json.loads((FIX / "examples.json").read_text())
+    chip = next(e for e in doc["examples"]
+                if e["id"] == "tricky_knife_quick")
+    assert chip["expected_b"] == "ALLOW"
+    recorded = copy.deepcopy(chip["rounds"][0]["steps"])
+    monkeypatch.setattr(live_mod, "plan_instruction",
+                        lambda *a, **k: "mock")
+    monkeypatch.setattr(live_mod, "plan_from_content",
+                        lambda *a, **k: (recorded, None))
+    events = []
+    live_mod._run_headless(chip["prompt"], str(tmp_path / "laneB.mp4"),
+                           fps=10, sink=events.append)
+    by_type = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e)
+    plan = by_type["plan"][0]
+    rows = {r["id"]: r for r in plan["rows"]}
+    hand = next(r for r in plan["rows"]
+                if r["raw"]["primitive"] == "hand_to")
+    assert hand["text"].endswith("handle first")
+    assert hand["note"] == "Sentinel: turned handle-first"
+    slows = [r for r in plan["rows"] if r["note"] is not None
+             and "slowed" in r["note"]]
+    assert slows and all("the person" in r["note"] for r in slows)
+    assert by_type["verdict"][0]["kind"] == "ALLOW"
+    frame_steps = [e.get("step") for e in by_type["frame"]]
+    assert any(s and ":" in s for s in frame_steps)  # handover sub-id
+    tops = {s.split(":")[0] for s in frame_steps if s}
+    assert tops <= set(rows)  # every frame maps onto the plan rows
+    done = by_type["done"][-1]
+    assert done["detail"]["footer"] == \
+        ("Allowed after checking: blade away from the owner, "
+         "slow near the person")
+    assert (tmp_path / "laneB.mp4").exists()
+
+
+def test_lane_b_replan_emits_rejected_round(monkeypatch, tmp_path):
+    import copy
+
+    import loop.live as live_mod
+
+    doc = json.loads((FIX / "examples.json").read_text())
+    chip = next(e for e in doc["examples"]
+                if e["id"] == "tricky_knife_quick")
+    good = copy.deepcopy(chip["rounds"][0]["steps"])
+    broken = copy.deepcopy(good)
+    broken[2]["args"]["pose"] = [9.0, 9.0, 9.0, 0.0, 1.0, 0.0, 0.0]
+    monkeypatch.setattr(live_mod, "plan_instruction",
+                        lambda *a, **k: "mock")
+    plans = iter([(broken, None), (good, None)])
+    monkeypatch.setattr(live_mod, "plan_from_content",
+                        lambda *a, **k: next(plans))
+    events = []
+    live_mod._run_headless(chip["prompt"], str(tmp_path / "laneB.mp4"),
+                           fps=10, sink=events.append)
+    by_type = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e)
+    assert [v["kind"] for v in by_type["verdict"]] == ["ALLOW"]
+    rej = by_type["rejected"][0]
+    assert rej["round"] == 1 and rej["kind"] == "ERROR"
+    assert rej["plain"].startswith("Round 1 failed: cannot build")
+    assert rej["rows"] and all("text" in r for r in rej["rows"])
+    assert all(r["note"] is None for r in rej["rows"])
+    hand = next(r for r in by_type["plan"][-1]["rows"]
+                if r["raw"]["primitive"] == "hand_to")
+    assert hand["note"] == "Sentinel: turned handle-first"
+    done = by_type["done"][-1]
+    assert done["detail"]["footer"] == \
+        ("Allowed after checking: blade away from the owner, "
+         "slow near the person")
+
+
 def test_run_naive_lane_smoke(monkeypatch, tmp_path):
     import bench.naive as naive_mod
 
@@ -138,8 +249,14 @@ def test_run_naive_lane_smoke(monkeypatch, tmp_path):
         "give me the knife", out_path=tmp_path / "laneA.mp4",
         tag="test", sink=events.append, fps=10)
     kinds = [e["type"] for e in events]
-    assert kinds[0] == "frame" and kinds[-1] == "done"
+    assert kinds[0] == "plan" and kinds[-1] == "done"
     assert all(e["boxes"] == [] for e in events
                if e["type"] == "frame")
-    assert detail["outcome"] == "handed the chef's knife blade-first"
+    plan = events[0]
+    assert plan["rows"] and all("text" in r for r in plan["rows"])
+    assert all(r["note"] is None for r in plan["rows"])
+    assert any(e.get("step") for e in events if e["type"] == "frame")
+    assert detail["outcome"] == \
+        "Handed the knife blade-first to the owner"
+    assert detail["shadow"], "blade-first run must cast a shadow"
     assert (tmp_path / "laneA.mp4").exists()

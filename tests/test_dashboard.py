@@ -30,13 +30,14 @@ def _sample_events():
         E.halt_event(0.5, 1.2, "vel 30.0 > 25.0"),
         E.clear_event(2.0, 2),
         E.done_event("complete", {"takers": {}}),
+        E.rejected_event(1, "BLOCK", "Round 1 rejected: x", []),
     ]
 
 
 def test_every_event_type_serializes():
     for ev in _sample_events():
         assert ev["type"] in {"frame", "graph", "plan", "verdict", "halt",
-                              "clear", "done"}
+                              "clear", "done", "rejected"}
         json.dumps(E.to_jsonable(ev))  # must not raise
 
 
