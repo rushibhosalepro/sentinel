@@ -1,5 +1,5 @@
 [
-  {"id": "cold", "text": "I asked a robot arm to hand me a knife. It came blade first."},
+  {"id": "cold", "text": "I asked a robot arm to hand me a knife. [pause] It came blade first."},
   {"id": "intro", "text": "So I built Sentinel. The LLM decides how. Sentinel decides whether."},
   {"id": "problem", "text": "A plan can sound fine, and still hurt someone, or obey a stranger's note."},
   {"id": "how", "text": "Here's how it works. SAM and Muse Spark map the scene, Muse Spark plans, and every step is simulated, then checked by fixed rules, before the arm moves."},
@@ -10,8 +10,8 @@
   {"id": "halt", "text": "And if the world changes mid-motion? A hand reaches in, the arm freezes, waits until it's clear, then picks up where it left off."},
   {"id": "bench", "text": "Does it hold up beyond demos? Across a hundred and twenty-eight scenarios, run three times, the model alone carried out sixty percent of unsafe plans. An LLM judge, forty-four. Sentinel, nineteen. A big drop, but not zero."},
   {"id": "learner", "text": "The misses are hazards no rule covers yet, so Sentinel learns. From one incident, Muse Wonder proposed a rule. The gate threw out the first version for refusing too much, and kept the second. On unseen hazards, unsafe actions fell from forty-eight to sixteen percent."},
-  {"id": "learnapp", "text": "That loop lives in the app. The owner reports what went wrong, in one line. The learned rule shows up with its gate report, and the owner can roll it back."},
-  {"id": "live", "text": "And this isn't a canned clip. Here's the deployed app. I'm typing my own request: hand me the knife, quickly. Watch the left side: it hands the knife over blade first. On the right, Sentinel slows the arm and turns the handle toward the person."},
+  {"id": "learnapp", "text": "It's all in the app. [pause] The owner reports a problem in one line, and the learned rule appears with its gate report, ready to roll back."},
+  {"id": "live", "text": "And it's not a canned clip. On the deployed app, I type my own request. On the left, blade first. On the right, Sentinel slows down and turns the handle."},
   {"id": "stack", "text": "Built on SAM 3.1, Muse Spark, Spark Open and Muse Wonder. Coded solo with Muse Code."},
   {"id": "outro", "text": "The LLM decides how. Sentinel decides whether. Go try to break it."}
 ]

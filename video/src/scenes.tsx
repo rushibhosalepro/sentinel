@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Easing,
   Img,
   OffthreadVideo,
   Sequence,
@@ -667,9 +668,9 @@ export const Stack: React.FC = () => {
 // The dashboard's Rules tab (/debug): incident box, the active learned
 // rule, and its gate report. Crop is 825x515 px.
 const LEARN_STEPS = [
-  { at: 1.5, y: 0, h: 100, color: C.amber, n: "1", t: "The owner reports an incident", s: "one sentence, on the last run" },
-  { at: 4.5, y: 285, h: 230, color: C.green, n: "2", t: "Muse Wonder proposes · the gate checks", s: "schema, replay, ratchet, preflight" },
-  { at: 7.2, y: 120, h: 142, color: C.blue, n: "3", t: "The kept rule is live", s: "the owner can roll it back" },
+  { at: 2.0, y: 0, h: 100, color: C.amber, n: "1", t: "The owner reports a problem", s: "one sentence, on the last run", zoom: 1.4 },
+  { at: 4.6, y: 120, h: 142, color: C.blue, n: "2", t: "Muse Wonder's rule appears", s: "live, and the owner can roll it back", zoom: 1.4 },
+  { at: 6.6, y: 285, h: 230, color: C.green, n: "3", t: "With its gate report", s: "schema, replay, ratchet, preflight all pass", zoom: 1.3 },
 ];
 
 export const LearnApp: React.FC = () => {
@@ -678,11 +679,26 @@ export const LearnApp: React.FC = () => {
   const pic = useEnter(8);
   const W = 1050;
   const k = W / 825;
+  const H = 515 * k;
   const on = (at: number) =>
     interpolate(frame, [sec(at), sec(at) + 12], [0, 1], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
+  // camera: overview, then zoom onto each panel as the narration names it
+  let s = 1;
+  let cy = H / 2;
+  LEARN_STEPS.forEach((st) => {
+    const e = interpolate(frame, [sec(st.at), sec(st.at) + 18], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: Easing.inOut(Easing.cubic),
+    });
+    s += (st.zoom - s) * e;
+    cy += ((st.y + st.h / 2) * k - cy) * e;
+  });
+  const ty = Math.min(0, Math.max(H - s * H, H / 2 - s * cy));
+  const tx = 0; // text is left-aligned: keep the left edge in view
   return (
     <SceneFade>
       <div style={{ ...pad, gap: 30 }}>
@@ -691,27 +707,44 @@ export const LearnApp: React.FC = () => {
           <span style={{ fontSize: 30, color: C.dim }}>dashboard · Rules tab</span>
         </div>
         <div style={{ display: "flex", gap: 60, alignItems: "center" }}>
-          <div style={{ ...pic, position: "relative", width: W, flexShrink: 0 }}>
-            <Img
-              src={staticFile("rules_tab.png")}
-              style={{ width: W, borderRadius: 14, border: `2px solid ${C.line}`, display: "block" }}
-            />
-            {LEARN_STEPS.map((st) => (
-              <div
-                key={st.n}
-                style={{
-                  position: "absolute",
-                  left: -6,
-                  top: st.y * k - 6,
-                  width: W + 12,
-                  height: st.h * k + 12,
-                  border: `4px solid ${st.color}`,
-                  borderRadius: 12,
-                  opacity: on(st.at),
-                  boxShadow: `0 0 24px ${st.color}`,
-                }}
-              />
-            ))}
+          <div
+            style={{
+              ...pic,
+              position: "relative",
+              width: W,
+              height: H,
+              flexShrink: 0,
+              overflow: "hidden",
+              borderRadius: 14,
+              border: `2px solid ${C.line}`,
+              background: "#fff",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                transform: `translate(${tx}px, ${ty}px) scale(${s})`,
+                transformOrigin: "0 0",
+              }}
+            >
+              <Img src={staticFile("rules_tab.png")} style={{ width: W, display: "block" }} />
+              {LEARN_STEPS.map((st) => (
+                <div
+                  key={st.n}
+                  style={{
+                    position: "absolute",
+                    left: 4,
+                    top: st.y * k + 2,
+                    width: W - 8,
+                    height: st.h * k - 4,
+                    border: `${4 / s}px solid ${st.color}`,
+                    borderRadius: 10,
+                    opacity: on(st.at),
+                  }}
+                />
+              ))}
+            </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
             {LEARN_STEPS.map((st) => (
@@ -748,27 +781,38 @@ export const LearnApp: React.FC = () => {
 
 // ---------------------------------------------------------------- live app
 // Screen recording of a typed request on the deployed app (Cap, 4K ->
-// 1080p30 proxy). Waiting stretches are sped up; each part says how much.
+// 1080p30 proxy), cut to the request and the result. A virtual camera
+// (scale, centre in % of the frame) follows what the narration names.
+type Cam = { s: number; x: number; y: number };
 const REC = [
-  { from: 5, to: 17.5, rate: 6, stamp: "Typed live, not a preset", color: C.amber },
-  { from: 17.5, to: 62, rate: 12, stamp: "Same Muse Spark plans both lanes", color: C.dim },
-  { from: 62, to: 108, rate: 6, stamp: "A hands it blade-first · B slows and turns the handle", color: C.green },
-  { from: 108, to: 157, rate: 12, stamp: "A: \"offered blade-first\" · B: ALLOW, handle first", color: C.green },
+  { from: 5, to: 17.5, rate: 5, stamp: "Typed live, not a preset", color: C.amber,
+    cam: { s: 1, x: 50, y: 50 } },
+  { from: 17.5, to: 62, rate: 30, stamp: "Same Muse Spark plans both lanes", color: C.dim,
+    cam: { s: 1.42, x: 50, y: 50 } },
+  { from: 62, to: 108, rate: 8, stamp: "A hands it blade-first · B slows and turns the handle", color: C.green,
+    cam: { s: 1.75, x: 49.5, y: 41 } },
 ];
-const REC_HOLD = sec(1.3);
-export const LIVE_FRAMES =
-  REC.reduce((n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0) + REC_HOLD;
+const REC_HOLD = sec(2.3);
+const HOLD_CAM: Cam = { s: 1.3, x: 50, y: 60 };
+const HOLD_STAMP = "A: \"offered blade-first\" · B: ALLOW, handle first";
+
+const camTransform = ({ s, x, y }: Cam) => {
+  const clamp = (v: number) => Math.min(0, Math.max(100 - 100 * s, v));
+  return `translate(${clamp(50 - s * x)}%, ${clamp(50 - s * y)}%) scale(${s})`;
+};
 
 export const Live: React.FC = () => {
   const frame = useCurrentFrame();
   const head = useEnter(0);
   let t = 0;
-  let current = REC[REC.length - 1];
+  let idx = REC.length; // REC.length = the final hold
+  const starts: number[] = [];
   const parts = REC.map((s, i) => {
     const len = Math.round(((s.to - s.from) * 30) / s.rate);
     const at = t;
+    starts.push(at);
     t += len;
-    if (frame >= at && frame < at + len) current = s;
+    if (frame >= at && frame < at + len) idx = i;
     return (
       <Sequence key={i} from={at} durationInFrames={len} layout="none">
         <OffthreadVideo
@@ -782,13 +826,19 @@ export const Live: React.FC = () => {
     );
   });
   const ended = frame >= t;
-  // once the lanes are on screen, zoom onto them (the page is small in 4K)
-  const lanesAt = REC.slice(0, 1).reduce(
-    (n, s) => n + Math.round(((s.to - s.from) * 30) / s.rate), 0);
-  const zoomIn = interpolate(frame, [lanesAt + 20, lanesAt + 40], [1, 1.42], {
+  if (frame < 0 || (!ended && idx === REC.length)) idx = 0;
+  // ease from the previous camera into this part's over 15 frames
+  const camOf = (i: number): Cam => (i >= REC.length ? HOLD_CAM : REC[i].cam);
+  const segStart = ended ? t : starts[idx];
+  const k = interpolate(frame, [segStart, segStart + 15], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
+    easing: Easing.inOut(Easing.cubic),
   });
+  const a = camOf(Math.max(0, idx - 1));
+  const b = camOf(idx);
+  const cam = { s: a.s + (b.s - a.s) * k, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+  const part = idx < REC.length ? REC[idx] : null;
   const W = 1500;
   const H = (W * 1080) / 1920;
   return (
@@ -813,14 +863,14 @@ export const Live: React.FC = () => {
             style={{
               position: "absolute",
               inset: 0,
-              transform: `scale(${zoomIn})`,
-              transformOrigin: "50% 50%",
+              transform: camTransform(cam),
+              transformOrigin: "0 0",
             }}
           >
             {parts}
             {ended ? (
-            <Img
-              src={staticFile("live_rec_last.png")}
+              <Img
+                src={staticFile("live_rec_last.png")}
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
               />
             ) : null}
@@ -829,7 +879,7 @@ export const Live: React.FC = () => {
             style={{
               position: "absolute",
               right: 18,
-              bottom: 18,
+              top: 18,
               background: "rgba(8,10,14,0.82)",
               color: "#fff",
               fontSize: 26,
@@ -838,15 +888,15 @@ export const Live: React.FC = () => {
               borderRadius: 8,
             }}
           >
-            {ended ? "end of run" : current.rate === 1 ? "real time" : `${current.rate}× speed`}
+            {part ? `${part.rate}× speed` : "end of run"}
           </span>
           <span
             style={{
               position: "absolute",
               left: 18,
-              bottom: 18,
+              top: 18,
               background: "rgba(8,10,14,0.85)",
-              border: `3px solid ${current.color === C.dim ? C.line : current.color}`,
+              border: `3px solid ${part ? (part.color === C.dim ? C.line : part.color) : C.green}`,
               color: "#fff",
               fontSize: 30,
               fontWeight: 800,
@@ -854,7 +904,7 @@ export const Live: React.FC = () => {
               borderRadius: 10,
             }}
           >
-            {current.stamp}
+            {part ? part.stamp : HOLD_STAMP}
           </span>
         </div>
       </div>
