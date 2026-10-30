@@ -12,6 +12,6 @@
   {"id": "learner", "text": "The misses are hazards no rule covers yet, so Sentinel learns. From one incident, Muse Wonder proposed a rule. The gate threw out the first version for refusing too much, and kept the second. On unseen hazards, unsafe actions fell from forty-eight to sixteen percent."},
   {"id": "learnapp", "text": "It's all in the app. [pause] The owner reports a problem in one line, and the learned rule appears with its gate report, ready to roll back."},
   {"id": "live", "text": "And it's not a canned clip. On the deployed app, I type my own request. On the left, blade first. On the right, Sentinel slows down and turns the handle."},
-  {"id": "stack", "text": "Built on SAM 3.1, Muse Spark, Spark Open and Muse Wonder. Coded solo with Muse Code."},
+  {"id": "stack", "text": "Built on SAM, Muse Spark, Spark Open and Muse Wonder, with Muse Code. Spark Open runs on Baseten, and the app on Modal."},
   {"id": "outro", "text": "The LLM decides how. Sentinel decides whether. Go try to break it."}
 ]

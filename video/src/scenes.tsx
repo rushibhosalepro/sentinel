@@ -767,21 +767,33 @@ const STACK = [
   ["Muse Code", "built the code with me, solo, in 9 days"],
 ];
 
+const PARTNERS = [
+  ["Baseten", "serves Muse Spark Open, the open-weights planner"],
+  ["Modal", "hosts the live app anyone can try"],
+];
+
 export const Stack: React.FC = () => {
   const head = useEnter(0);
-  const rows = [useEnter(10), useEnter(30), useEnter(50), useEnter(70), useEnter(90)];
+  const rows = [useEnter(10), useEnter(25), useEnter(40), useEnter(55), useEnter(70)];
+  const head2 = useEnter(sec(5.0));
+  const prow = [useEnter(sec(5.4)), useEnter(sec(7.2))];
+  const Row = (m: string, w: string, style: React.CSSProperties) => (
+    <div key={m} style={{ ...style, display: "flex", gap: 30, alignItems: "baseline" }}>
+      <div style={{ width: 520, fontSize: 44, fontWeight: 800 }}>{m}</div>
+      <div style={{ fontSize: 32, color: C.dim }}>{w}</div>
+    </div>
+  );
   return (
     <SceneFade>
-      <div style={{ ...pad, gap: 34 }}>
+      <div style={{ ...pad, gap: 24 }}>
         <div style={head}>
           <Kicker>Built with Meta models</Kicker>
         </div>
-        {STACK.map(([m, w], i) => (
-          <div key={m} style={{ ...rows[i], display: "flex", gap: 30, alignItems: "baseline" }}>
-            <div style={{ width: 520, fontSize: 46, fontWeight: 800 }}>{m}</div>
-            <div style={{ fontSize: 33, color: C.dim }}>{w}</div>
-          </div>
-        ))}
+        {STACK.map(([m, w], i) => Row(m, w, rows[i]))}
+        <div style={{ ...head2, marginTop: 22 }}>
+          <Kicker color={C.blue}>Running on</Kicker>
+        </div>
+        {PARTNERS.map(([m, w], i) => Row(m, w, prow[i]))}
       </div>
     </SceneFade>
   );
