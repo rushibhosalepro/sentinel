@@ -8,79 +8,73 @@
  {
   "id": "intro",
   "start": 6.0,
-  "dur": 6.8,
+  "dur": 6.7,
   "voice": 5.69
  },
  {
   "id": "problem",
-  "start": 12.8,
-  "dur": 6.5,
-  "voice": 5.45
+  "start": 12.7,
+  "dur": 14.8,
+  "voice": 13.73
  },
  {
   "id": "how",
-  "start": 19.3,
-  "dur": 15.5,
-  "voice": 14.38
+  "start": 27.5,
+  "dur": 18.1,
+  "voice": 17.02
  },
  {
   "id": "knife",
-  "start": 34.8,
-  "dur": 14.9,
+  "start": 45.6,
+  "dur": 14.8,
   "voice": 13.75
  },
  {
   "id": "water",
-  "start": 49.7,
+  "start": 60.4,
   "dur": 15.4,
   "voice": 14.04
  },
  {
-  "id": "why",
-  "start": 65.1,
-  "dur": 7.1,
-  "voice": 6.02
- },
- {
   "id": "sticky",
-  "start": 72.2,
-  "dur": 16.7,
+  "start": 75.8,
+  "dur": 16.6,
   "voice": 15.55
  },
  {
   "id": "halt",
-  "start": 88.9,
-  "dur": 11.1,
+  "start": 92.4,
+  "dur": 11.0,
   "voice": 9.96
  },
  {
   "id": "bench",
-  "start": 100.0,
+  "start": 103.4,
   "dur": 18.8,
   "voice": 17.71
  },
  {
   "id": "learner",
-  "start": 118.8,
-  "dur": 21.0,
-  "voice": 19.92
+  "start": 122.2,
+  "dur": 17.8,
+  "voice": 16.73
  },
  {
   "id": "learnapp",
-  "start": 139.8,
-  "dur": 11.0,
+  "start": 140.0,
+  "dur": 10.9,
   "voice": 9.86
  },
  {
   "id": "live",
-  "start": 150.8,
+  "start": 150.9,
   "dur": 12,
   "voice": 10.8
  },
  {
   "id": "stack",
-  "start": 162.8,
-  "dur": 10.4,
+  "start": 162.9,
+  "dur": 10.3,
   "voice": 9.26
  },
  {
