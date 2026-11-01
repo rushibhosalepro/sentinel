@@ -89,15 +89,15 @@ export const LiveV15: React.FC = () => {
   const b = camOf(idx);
   const cam = { s: a.s + (b.s - a.s) * k, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
   const part = idx < REC15.length ? REC15[idx] : null;
-  const W = 1240;
+  const W = 1180;
   const H = (W * 1080) / 1920;
   return (
     <SceneFade>
-      <div style={{ ...padV15, alignItems: "center", gap: 22 }}>
-        <div style={{ ...head, alignSelf: "stretch", display: "flex", alignItems: "baseline", gap: 28, paddingLeft: 160 }}>
+      <div style={{ ...padV15, alignItems: "center", gap: 26 }}>
+        <div style={{ ...head, alignSelf: "stretch", paddingLeft: 160 }}>
           <Kicker>Live app</Kicker>
           <span style={{ fontSize: 34, color: C.dim }}>
-            the live demo, hosted on Modal — I type my own request
+            the live demo — try it yourself
           </span>
         </div>
         <div

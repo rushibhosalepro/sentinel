@@ -1,0 +1,74 @@
+[
+ {
+  "id": "cold",
+  "start": 0.0,
+  "dur": 6,
+  "voice": 4.72
+ },
+ {
+  "id": "intro",
+  "start": 6.0,
+  "dur": 10.7,
+  "voice": 9.63
+ },
+ {
+  "id": "problem",
+  "start": 16.7,
+  "dur": 9.5,
+  "voice": 8.45
+ },
+ {
+  "id": "how",
+  "start": 26.2,
+  "dur": 28.6,
+  "voice": 27.5
+ },
+ {
+  "id": "knife",
+  "start": 54.8,
+  "dur": 19,
+  "voice": 16.97
+ },
+ {
+  "id": "water",
+  "start": 73.8,
+  "dur": 15.5,
+  "voice": 13.42
+ },
+ {
+  "id": "sticky",
+  "start": 89.3,
+  "dur": 12.7,
+  "voice": 11.54
+ },
+ {
+  "id": "bench",
+  "start": 102.0,
+  "dur": 28.4,
+  "voice": 27.33
+ },
+ {
+  "id": "learner",
+  "start": 130.4,
+  "dur": 16.5,
+  "voice": 15.45
+ },
+ {
+  "id": "live",
+  "start": 146.9,
+  "dur": 14.1,
+  "voice": 12.8
+ },
+ {
+  "id": "credits",
+  "start": 161.0,
+  "dur": 10.1,
+  "voice": 9.0
+ },
+ {
+  "id": "outro",
+  "start": 171.1,
+  "dur": 7,
+  "voice": 4.62
+ }
+]

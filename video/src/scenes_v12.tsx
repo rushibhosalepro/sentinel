@@ -18,7 +18,7 @@ export const ColdV12: React.FC = () => {
   const cap = useEnter(0);
   return (
     <SceneFade>
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 26 }}>
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", gap: 36 }}>
         <div style={{ ...cap, fontSize: 32, color: C.dim }}>
           <span style={{ fontFamily: MONO, color: C.text }}>"hand me the knife"</span>
           {"  ·  "}an LLM-planned robot arm, no safety layer

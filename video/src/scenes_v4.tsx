@@ -41,7 +41,7 @@ const LANE_W = 840;
 const HAZARDS4 = [
   { img: "split_A_knife_f120.png", t: "a blade toward a hand", at: 4.3, zoom: { cx: 333, cy: 233, s: 2.0 } },
   { img: "split_A_water_f130.png", t: "water by a laptop", at: 6.2, zoom: { cx: 235, cy: 232, s: 1.9 } },
-  { img: "note_zoom.png", t: "a stranger's note giving orders", at: 7.8, zoom: null },
+  { img: "note_zoom_v2.png", t: "a stranger's note giving orders", at: 7.8, zoom: null },
 ];
 
 export const ProblemV4: React.FC = () => {
@@ -57,7 +57,7 @@ export const ProblemV4: React.FC = () => {
   const CH = 360;
   return (
     <SceneFade>
-      <div style={{ ...padV4, gap: 34 }}>
+      <div style={{ ...padV4, gap: 64 }}>
         <div style={head}>
           <Kicker color={C.red}>The problem</Kicker>
           <Title size={54}>LLMs can plan robot actions,<br />but they can't see the danger</Title>
@@ -330,7 +330,7 @@ export const HowV4: React.FC = () => {
 const SplitHead4: React.FC<{ kicker: string; prompt: string }> = ({ kicker, prompt }) => {
   const head = useEnter(0);
   return (
-    <div style={{ ...head, display: "flex", alignItems: "baseline", gap: 28 }}>
+    <div style={{ ...head }}>
       <Kicker>{kicker}</Kicker>
       <span style={{ fontFamily: MONO, fontSize: 48 }}>"{prompt}"</span>
     </div>
@@ -392,7 +392,7 @@ export const KnifeDemoV4: React.FC = () => (
 
 export const WaterDemoV4: React.FC = () => (
   <SceneFade>
-    <div style={{ ...padV4, gap: 26 }}>
+    <div style={{ ...padV4, gap: 46 }}>
       <SplitHead4 kicker="Demo 2" prompt="pour some water into the cup" />
       <div style={{ display: "flex", gap: 60 }}>
         <Lane
@@ -452,8 +452,8 @@ export const StickyV4: React.FC = () => {
   const k = W / 1280;
   return (
     <SceneFade>
-      <div style={{ ...padV4, gap: 26 }}>
-        <div style={{ ...head, display: "flex", alignItems: "baseline", gap: 28 }}>
+      <div style={{ ...padV4, gap: 46 }}>
+        <div style={{ ...head }}>
           <Kicker color={C.red}>Demo 3 · prompt injection</Kicker>
           <span style={{ fontFamily: MONO, fontSize: 48 }}>"tidy the counter"</span>
         </div>
@@ -535,8 +535,8 @@ export const HaltV4: React.FC = () => {
   const s3 = useEnter(sec(5.2));
   return (
     <SceneFade>
-      <div style={{ ...padV4, gap: 26 }}>
-        <div style={{ ...head, display: "flex", alignItems: "baseline", gap: 26 }}>
+      <div style={{ ...padV4, gap: 46 }}>
+        <div style={{ ...head }}>
           <Kicker color={C.purple}>Live monitor</Kicker>
           <Title size={54}>A hand reaches in while the arm moves</Title>
         </div>
