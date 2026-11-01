@@ -26,32 +26,21 @@ def voice_len(sid: str) -> float:
         return w.getnframes() / w.getframerate()
 
 
-def normalise_to_mp3(sid: str, target_rms_db: float = -16.0) -> None:
-    """public/voice/<id>.wav -> loudness-matched public/voice/<id>.mp3."""
-    import subprocess
-    import tempfile
+def normalise_to_mp3(sid: str) -> None:
+    """public/voice/<id>.wav -> loudness-matched public/voice/<id>.mp3.
 
-    import numpy as np
+    Highpass, short fades at both ends, then a loudness pass; the mp3
+    is 44.1 kHz / 192k. Duration is preserved so voice_len stays valid.
+    """
+    import subprocess
 
     src = ROOT / "public" / "voice" / f"{sid}.wav"
-    with wave.open(str(src)) as w:
-        rate, ch = w.getframerate(), w.getnchannels()
-        a = np.frombuffer(w.readframes(w.getnframes()), np.int16) / 32768.0
-    rms = np.sqrt(np.mean(a ** 2)) + 1e-9
-    a = np.tanh(a * 10 ** (target_rms_db / 20) / rms * 1.1) / np.tanh(1.1)
-    a *= min(1.0, 0.95 / (np.max(np.abs(a)) + 1e-9))
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_wav = Path(tmp) / "v.wav"
-        with wave.open(str(tmp_wav), "wb") as w:
-            w.setnchannels(ch)
-            w.setsampwidth(2)
-            w.setframerate(rate)
-            w.writeframes((a * 32767).astype(np.int16).tobytes())
-        subprocess.run(
-            ["npx", "remotion", "ffmpeg", "-y", "-loglevel", "error", "-i",
-             str(tmp_wav), "-ar", "44100", "-b:a", "160k",
-             str(src.with_suffix(".mp3"))],
-            cwd=ROOT, check=True, shell=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(src), "-af",
+         "highpass=f=80,afade=t=in:d=0.01,areverse,afade=t=in:d=0.03,"
+         "areverse,loudnorm=I=-16:TP=-1.5:LRA=7",
+         "-ar", "44100", "-b:a", "192k", str(src.with_suffix(".mp3"))],
+        cwd=ROOT, check=True)
 
 
 def main() -> None:
