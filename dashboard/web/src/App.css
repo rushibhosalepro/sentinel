@@ -407,6 +407,23 @@
   cursor: default;
 }
 
+.run-secondary {
+  font-size: 1.15rem;
+  padding: 0.6rem 1.6rem;
+  background: #fff;
+  color: #24292f;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: 0.6rem;
+}
+
+.run-secondary:disabled {
+  color: #8c959f;
+  border-color: #e0e0e0;
+  cursor: default;
+}
+
 .chips {
   gap: 0.4rem;
   align-items: center;

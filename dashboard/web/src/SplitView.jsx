@@ -160,6 +160,7 @@ export default function SplitView() {
   const [hint, setHint] = useState(null)
   const [queued, setQueued] = useState(null)
   const runRef = useRef(null)
+  const ignoredRef = useRef(null)
 
   function clearRun() {
     setImageA(null)
@@ -205,6 +206,7 @@ export default function SplitView() {
     }
     function onMessage(msg) {
       const ev = JSON.parse(msg.data)
+      if (ev.run_id !== 0 && ev.run_id === ignoredRef.current) return
       if (ev.run_id !== runRef.current) resetRun(ev.run_id)
       if (ev.lane === 'A') {
         if (ev.type === 'frame') {
@@ -355,6 +357,17 @@ export default function SplitView() {
     return 'running…'
   }
 
+  function resetAll() {
+    ignoredRef.current = runRef.current
+    clearRun()
+    setInstruction('')
+    setHint(null)
+    setQueued(null)
+    setRunning(false)
+    setStatus('idle')
+    fetch(`/split-scene?preset=${preset}`).catch(() => {})
+  }
+
   const roundNums = Object.keys(roundsB)
     .map(Number)
     .sort((a, b) => a - b)
@@ -389,6 +402,15 @@ export default function SplitView() {
             className="run-primary"
           >
             {runLabel()}
+          </button>
+          <button
+            type="button"
+            onClick={resetAll}
+            disabled={running}
+            className="run-secondary"
+            title="Clear the page: instruction, lanes, verdicts, timeline"
+          >
+            Reset
           </button>
           <span className={connected ? 'ok' : 'bad'}>
             {connected ? '● ws connected' : '○ ws disconnected'}

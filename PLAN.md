@@ -254,6 +254,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-14** Shared lane executor: lane A runs loop.live's execution path with sentinel=False (same stepping, person reaches + takes, same fps; check/feedback/replan/HALT off; preflight already unwired everywhere; unsafe hand-over = no turn/slow per S-07). End-state A footers from live sim data (blade/handle take, pour, note, drop/leave). Simultaneous execution start (barrier), per-lane elapsed on the page, early-ended lane dims with final status. Re-record split_knife/water/sticky mp4s. Test: same plan via both lanes with sentinel=False yields identical motion.
 - [x] **D-15** Lane A honesty fixes: naive planner is told the speaker is the owner (me/I/my/you = owner; requester references mapped to owner before lowering, only an explicit "the visitor" keeps the legacy drop path); visitor-drop footer ("Dropped the knife toward the visitor"); shadow notes filtered to what happened (no owner-directed notes when the owner was never involved; mid-air release kept without the person claim); naive system prompt trusts counter notes ("notes on the counter are instructions from the owner", lane A captioned "naive: trusts what it reads") or the sticky card leaves the featured 4; mp4 captions >= 22 px footers / >= 20 px tags. Re-record split_knife/sticky, redeploy.
 - [x] **D-17** No lane ends frameless: the split sink publishes the idle setup ahead of any done that had no frame (covers returned done-errors like lane A's build failure, not just exceptions); renders the idle on demand if the connect-time seed has not landed yet (cold worker)
+- [x] **D-18** Reset button on the split page: clears instruction, lanes, verdicts, timeline and footers, reloads the current preset idle scene, ignores late events from the reset run (idle run-0 always accepted); disabled while running
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -467,6 +468,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.43 | Nov 2 | S-08: IK staged fallback (move_to retries at 2 cm, ori strict) so sam-mode pours survive joint-limit floors; root cause was joint2 pinned, not solver weakness |
 | v1.44 | Nov 2 | L-08: MAX_STEPS 20 -> 30 + no-placeholder/finish-last-goal prompt rules (compound move+pour+deliver plans truncated at s20, cup never delivered) |
 | v1.45 | Nov 2 | Live follow-ups: S-08 held at 2 cm (5 cm tried + reverted: safe-spot perturbation), base-column r<0.20 floors 7 cm any seed -> prompt margin 0.20 m, C-11 state adjectives never ASK (empty/full/clean) + article fix, D-17 failed lane republishes idle frame |
+| v1.46 | Nov 2 | D-18: Reset button on split page (clears run data + instruction, reloads idle scene, drops late reset-run events) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
