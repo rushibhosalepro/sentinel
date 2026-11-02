@@ -83,3 +83,14 @@ def test_truly_unreachable_still_raises(staged):
         solve_pose(model, q1, np.array([2.0, 2.0, 2.0]), DOWN_QUAT,
                    pos_tol=1e-3, fallback_tol=FALLBACK_TOL,
                    max_iters=100)
+
+
+def test_base_column_target_fails_even_with_fallback(staged):
+    # Live s21 [0, 0.15, 0.3] (r = 0.15 m): floors near 7 cm from ANY
+    # seed, so tolerance is not the fix — the planner must keep
+    # targets r >= 0.20 m (prompt workspace rule). Guards the
+    # distinction: slack rescues joint-limit floors, not bad targets.
+    model, q1 = staged
+    with pytest.raises(IKFailed):
+        solve_pose(model, q1, np.array([0.0, 0.15, 0.3]), DOWN_QUAT,
+                   pos_tol=1e-3, fallback_tol=FALLBACK_TOL)

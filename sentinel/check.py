@@ -496,6 +496,11 @@ ADJECTIVES = frozenset({
     "silver", "big", "small", "large", "little", "hot", "cold",
     "full", "empty", "clean",
 })
+# State words describe condition, not identity: "move the empty cup"
+# acts on the right object, so they never ASK (Sentinel cannot see
+# fill state anyway). hot/cold are NOT here: claiming a hazard state
+# that matches nothing SHOULD ask.
+STATE_ADJECTIVES = frozenset({"empty", "full", "clean"})
 DETERMINERS = frozenset({"the", "a", "an", "my", "your", "this",
                          "that"})
 
@@ -508,7 +513,9 @@ def _unknown_object_finding(motion, graph, instruction: str):
     so the plan is acting on a guess -> ASK the owner instead of
     executing it. Bare synonyms ("hand me the mug") ALLOW. Heads
     resolve via graph ids/labels + OBJECT_SYNONYMS, adjectives match
-    against id + label + prompt tokens. Plain string matching, no LLM.
+    against id + label + prompt tokens. State words (empty/full/clean)
+    never fire: they describe condition, not which object. Plain
+    string matching, no LLM.
     """
     import re
 
@@ -548,13 +555,16 @@ def _unknown_object_finding(motion, graph, instruction: str):
         if j < 0 or words[j] not in ADJECTIVES:
             continue
         adj = words[j]
+        if adj in STATE_ADJECTIVES:
+            continue  # condition, not identity: the head is the object
         if adj in names[oid]:
             continue
         acted = oid if oid in held else held[0]
         phrase = f"{adj} {w}"
+        art = "an" if phrase[0] in "aeiou" else "a"
         return {"rule": "instruction_unknown_object", "node": None,
                 "t": 0.0,
-                "detail": f"I can't see a {phrase} - "
+                "detail": f"I can't see {art} {phrase} - "
                           f"did you mean the {acted}?",
                 "_verdict": "ASK", "_hard": False, "_hint": None,
                 "_fixable": False, "_origin": "seed",

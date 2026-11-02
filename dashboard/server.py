@@ -611,6 +611,15 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                 except SystemExit:
                     pass  # _run_headless emits done before raising
                 except Exception as e:  # noqa: BLE001 - one lane survives
+                    # A lane that dies before its first frame (e.g. lane A
+                    # build failure) would leave the camera on "loading
+                    # scene..." forever: republish its last frame (the
+                    # idle setup) under this run id first, so the error
+                    # shows against the scene, not a grey box.
+                    with state["lock"]:
+                        last = state["split_latest"].get(("frame", lane))
+                    if last is not None:
+                        _publish_split(lane, run_id, last[1])
                     _publish_split(
                         lane, run_id,
                         done_event("error", {"error": str(e)}))

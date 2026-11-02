@@ -234,6 +234,33 @@ def test_unknown_object_bare_synonym_allows():
     assert v["kind"] == "ALLOW"
 
 
+def test_unknown_object_empty_cup_allows():
+    # State words describe condition, not identity: the plan acts on
+    # the right object (Nov 2 live: "move empty cup..." ASKed).
+    model, data, _, graph = _fresh()
+    plan = _grasp_plan("cup", graph["objects"]["cup"]["pos"])
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    v = check(motion, graph, load_rulebook(),
+              instruction="move the empty cup near the laptop")
+    assert "instruction_unknown_object" not in _fired(v)
+    assert v["kind"] == "ALLOW"
+
+
+def test_unknown_object_orange_mug_asks_with_an():
+    model, data, _, graph = _fresh()
+    plan = _grasp_plan("cup", graph["objects"]["cup"]["pos"])
+    motion, _, _ = rollout_frames(model, data, plan,
+                                  derived_from="test:sentinel")
+    v = check(motion, graph, load_rulebook(),
+              instruction="hand me the orange mug")
+    assert v["kind"] == "ASK"
+    hit = next(f for f in v["findings"]
+               if f["rule"] == "instruction_unknown_object")
+    assert hit["detail"] == ("I can't see an orange mug - "
+                             "did you mean the cup?")
+
+
 def test_unknown_object_appel_still_asks_typo():
     model, data, _, graph = _fresh()
     plan = _grasp_plan("apple", graph["objects"]["apple"]["pos"])

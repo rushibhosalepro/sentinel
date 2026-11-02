@@ -41,6 +41,11 @@ ORI_TOL = 1e-2  # rad; enforced when orientation_cost > 0
 # with joint2 pinned), so a tight-only solve kills the run with no
 # recovery. The rollout records where the arm really goes and Sentinel
 # checks that path, so grasp-scale slack (grasp needs 6 cm) is sound.
+# Kept at 2 cm deliberately: 5 cm was tried and reverted (Nov 2) --
+# it let the safe-spot search accept a near-column spot that strands
+# the recovery plan, and changed the pinned F3 hint. Larger floors
+# (4.7 cm truth refloat, 7 cm base-column) recover via the replan
+# loop or are planner bugs (prompt keeps targets r >= 0.20 m).
 FALLBACK_TOL = 2e-2
 
 

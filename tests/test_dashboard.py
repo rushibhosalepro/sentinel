@@ -214,6 +214,11 @@ def _stub_live(instruction, out_path, *, preset, attack, perception,
     sink(E.done_event("BLOCK", {}))
 
 
+def _stub_naive_boom(instruction, *, preset, attack, out_path, tag, sink,
+                     fps=30, gate=None):
+    raise RuntimeError("boom: cannot build Motion")
+
+
 def test_split_runs_both_lanes_with_lane_tags():
     app = create_app(runner=_run_plan_done, split_naive=_stub_naive,
                      split_live=_stub_live)
@@ -241,6 +246,36 @@ def test_split_runs_both_lanes_with_lane_tags():
                       and e["type"] == "done")
         assert done_a["detail"]["outcome"] == "stub naive did X"
         assert {e["run_id"] for e in got} == {r.json()["run_id"]}
+
+
+def test_split_error_lane_republishes_last_frame():
+    # A lane that dies before its first frame must not leave the
+    # camera on "loading scene...": the idle setup is republished
+    # under the run id ahead of the done-error (Nov 2 live: lane A
+    # build failure showed a grey box).
+    app = create_app(runner=_run_plan_done, split_naive=_stub_naive_boom,
+                     split_live=_stub_live)
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws-split") as ws:
+        idle = [ws.receive_json() for _ in range(2)]
+        assert {e["run_id"] for e in idle} == {0}  # connect-time seed
+        r = client.post("/split", json={"preset": "knife"})
+        assert r.status_code == 202
+        run_id = r.json()["run_id"]
+        got = []
+        for _ in range(12):
+            ev = ws.receive_json()
+            got.append(ev)
+            dones = [e for e in got if e["type"] == "done"
+                     and e["run_id"] == run_id]
+            if len(dones) == 2:
+                break
+        lane_a = [e for e in got if e.get("lane") == "A"
+                  and e["run_id"] == run_id]
+        assert sorted(e["type"] for e in lane_a) == ["done", "frame"]
+        done = next(e for e in lane_a if e["type"] == "done")
+        assert done["status"] == "error"
+        assert "boom" in done["detail"]["error"]
 
 
 def _split_app():

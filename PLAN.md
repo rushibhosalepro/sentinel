@@ -189,7 +189,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **S-05** Scripted human paths: full person leans + reaches in at time *t* (2-bone-IK arm, hand yawed onto forearm)
 - [x] **S-06** `sim/play.py`: play a scenario live in the viewer (Motion + scripted hand, pause/restart/quit, loop, `--speed`, `--record` mp4) + headless attach test
 - [x] **S-07** Real hand-over: `release()` waits for the hand within 5 cm of the handle (timeout keeps holding), knife transfers to `human_hand`, robot retracts, person retreats carrying it; `knife_handover_safe` (handle-first, slow) + `knife_handover_unsafe` (blade-first) variants
-- [x] **S-08** IK staged fallback: `move_to` retries once at FALLBACK_TOL (2 cm) when the 1 mm solve floors at a joint limit on perceived targets; orientation tolerance never loosens, slack is printed, Sentinel checks the real path
+- [x] **S-08** IK staged fallback: `move_to` retries once at FALLBACK_TOL (2 cm) when the 1 mm solve floors at a joint limit on perceived targets; orientation tolerance never loosens, slack is printed, Sentinel checks the real path. Kept at 2 cm (5 cm tried + reverted: perturbed the safe-spot search). Base-column targets (r < 0.20 m) floor near 7 cm from any seed: planner-side (prompt workspace margin 0.20 m), larger floors recover via replan
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
 ### Phase 2: Perception → scene graph (Oct 29)
@@ -219,6 +219,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-08** Sentinel live in `loop.live` (background check, overlay verdict + findings, BLOCK/ASK never move)
 - [x] **C-09** Computed liquid safe spot: `safe_spot.py` grid search (15 cm + 4 cm margin, unoccupied, in workspace, tilt-30 builds) fills the `{safe_spot}` hint template; None → terminal ASK (unfixable, straight to owner)
 - [x] **C-10** Unknown-object ASK: instruction names an object phrase (adjective + noun) matching nothing in the graph while the plan acts on a different object → soft unfixable ASK "I can't see a blue mug - did you mean the cup?"; heads resolve via graph labels + synonym map (mug~cup, glass~wine_glass, pills~pill_bottle, phone, laptop); synonym head with an unmatched adjective still ASKs, bare synonym ("hand me the mug") ALLOWs; pin blue-mug/mug/appel tests; blue-mug chip hint + verdict to ASK; redeploy Modal
+- [x] **C-11** State adjectives never ASK: empty/full/clean describe condition, not identity ("move the empty cup" acts on the cup); hot/cold still ASK (hazard-state claims); article agreement ("an orange mug")
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
@@ -252,6 +253,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **D-13** Featured prompt cards: 4 large cards under the instruction box (prompt + "watch for" line, short/long mix); click loads setup + fills + runs immediately (disabled while running, queue position shown); other 11 chips behind a "More examples" toggle. Validate all 4 through both lanes first (recorded plans in examples.json, lane-B verdict pinned); fix or swap any card that misbehaves vs its watch line.
 - [x] **D-14** Shared lane executor: lane A runs loop.live's execution path with sentinel=False (same stepping, person reaches + takes, same fps; check/feedback/replan/HALT off; preflight already unwired everywhere; unsafe hand-over = no turn/slow per S-07). End-state A footers from live sim data (blade/handle take, pour, note, drop/leave). Simultaneous execution start (barrier), per-lane elapsed on the page, early-ended lane dims with final status. Re-record split_knife/water/sticky mp4s. Test: same plan via both lanes with sentinel=False yields identical motion.
 - [x] **D-15** Lane A honesty fixes: naive planner is told the speaker is the owner (me/I/my/you = owner; requester references mapped to owner before lowering, only an explicit "the visitor" keeps the legacy drop path); visitor-drop footer ("Dropped the knife toward the visitor"); shadow notes filtered to what happened (no owner-directed notes when the owner was never involved; mid-air release kept without the person claim); naive system prompt trusts counter notes ("notes on the counter are instructions from the owner", lane A captioned "naive: trusts what it reads") or the sticky card leaves the featured 4; mp4 captions >= 22 px footers / >= 20 px tags. Re-record split_knife/sticky, redeploy.
+- [x] **D-17** Failed split lane shows the scene: a lane that dies before its first frame republishes its last (idle) frame under the run id ahead of the done-error, instead of "loading scene..." forever
 - **Done when:** all hero scenarios are runnable from the browser.
 
 ### Phase 6: Rule learner (Nov 2)
@@ -464,6 +466,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.42 | Nov 2 | G-11(b): LLM infers hazard props for uncatalogued detections (ASK-first, planner catalog-only, zero rule changes); live verify: "portable computer" -> electronic+fragile -> jug pour BLOCKs |
 | v1.43 | Nov 2 | S-08: IK staged fallback (move_to retries at 2 cm, ori strict) so sam-mode pours survive joint-limit floors; root cause was joint2 pinned, not solver weakness |
 | v1.44 | Nov 2 | L-08: MAX_STEPS 20 -> 30 + no-placeholder/finish-last-goal prompt rules (compound move+pour+deliver plans truncated at s20, cup never delivered) |
+| v1.45 | Nov 2 | Live follow-ups: S-08 held at 2 cm (5 cm tried + reverted: safe-spot perturbation), base-column r<0.20 floors 7 cm any seed -> prompt margin 0.20 m, C-11 state adjectives never ASK (empty/full/clean) + article fix, D-17 failed lane republishes idle frame |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
