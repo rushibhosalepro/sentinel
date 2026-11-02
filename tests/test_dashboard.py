@@ -219,6 +219,13 @@ def _stub_naive_boom(instruction, *, preset, attack, out_path, tag, sink,
     raise RuntimeError("boom: cannot build Motion")
 
 
+def _stub_naive_doned(instruction, *, preset, attack, out_path, tag, sink,
+                      fps=30, gate=None):
+    # run_naive_lane's live shape: sink a done-error and return
+    # normally (no exception reaches the server).
+    sink(E.done_event("error", {"error": "boom: cannot build"}))
+
+
 def test_split_runs_both_lanes_with_lane_tags():
     app = create_app(runner=_run_plan_done, split_naive=_stub_naive,
                      split_live=_stub_live)
@@ -239,7 +246,8 @@ def test_split_runs_both_lanes_with_lane_tags():
         for e in got:
             by_lane.setdefault(e["lane"], []).append(e["type"])
         assert sorted(by_lane["A"]) == ["done", "frame"]
-        assert sorted(by_lane["B"]) == ["done", "verdict"]
+        # D-17: B's stub sinks no frame, so the done carries the idle.
+        assert sorted(by_lane["B"]) == ["done", "frame", "verdict"]
         frame = next(e for e in got if e["type"] == "frame")
         assert frame["boxes"] == []  # clean lane cameras
         done_a = next(e for e in got if e["lane"] == "A"
@@ -301,6 +309,31 @@ def test_split_error_lane_renders_frame_when_unseeded():
     lane_a = [e for e in got if e.get("lane") == "A"
               and e["run_id"] == run_id]
     assert sorted(e["type"] for e in lane_a) == ["done", "frame"]
+
+
+def test_split_returned_error_done_gets_frame():
+    # run_naive_lane sinks its build-error done and returns: no
+    # exception, so only the sink-level guarantee can frame it.
+    app = create_app(runner=_run_plan_done, split_naive=_stub_naive_doned,
+                     split_live=_stub_live)
+    with TestClient(app) as client, \
+            client.websocket_connect("/ws-split") as ws:
+        idle = [ws.receive_json() for _ in range(2)]
+        assert {e["run_id"] for e in idle} == {0}
+        r = client.post("/split", json={"preset": "knife"})
+        assert r.status_code == 202
+        run_id = r.json()["run_id"]
+        got = []
+        for _ in range(12):
+            ev = ws.receive_json()
+            got.append(ev)
+            dones = [e for e in got if e["type"] == "done"
+                     and e["run_id"] == run_id]
+            if len(dones) == 2:
+                break
+        lane_a = [e for e in got if e.get("lane") == "A"
+                  and e["run_id"] == run_id]
+        assert sorted(e["type"] for e in lane_a) == ["done", "frame"]
 
 
 def _split_app():
