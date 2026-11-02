@@ -189,6 +189,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **S-05** Scripted human paths: full person leans + reaches in at time *t* (2-bone-IK arm, hand yawed onto forearm)
 - [x] **S-06** `sim/play.py`: play a scenario live in the viewer (Motion + scripted hand, pause/restart/quit, loop, `--speed`, `--record` mp4) + headless attach test
 - [x] **S-07** Real hand-over: `release()` waits for the hand within 5 cm of the handle (timeout keeps holding), knife transfers to `human_hand`, robot retracts, person retreats carrying it; `knife_handover_safe` (handle-first, slow) + `knife_handover_unsafe` (blade-first) variants
+- [x] **S-08** IK staged fallback: `move_to` retries once at FALLBACK_TOL (2 cm) when the 1 mm solve floors at a joint limit on perceived targets; orientation tolerance never loosens, slack is printed, Sentinel checks the real path
 - **Done when:** a hand-written plan for each hero scenario produces a Motion and plays back.
 
 ### Phase 2: Perception → scene graph (Oct 29)
@@ -203,6 +204,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **G-09** Two-stage detection: Muse Spark {label, box} → SAM 3.1 box-prompt masks; label match or unknown_object; cache per frame hash
 - [x] **G-10** `bench/perception_compare.py`: text-SAM vs Spark+SAM on default/F3/F4 → `out/perception_report.md`
 - [x] **Wire-up** `--perception sam|truth` in loop.live (default truth); sam overlay shows per-object conf; conf < 0.5 ASKs via the unknown_object rule
+- [x] **G-11(b)** LLM property inference for uncatalogued detections: Spark structured output → fixed-vocabulary hazard props → `seen_*` nodes with HAS edges (`perception/properties.py`, `spawn_inferred`); planner sees catalog ids only; one bad inference degrades that box to unknown; zero rule changes
 - **Done when:** the graph from SAM matches ground truth on the hero scenes (or the fallback is documented).
 
 ### Phase 3: Sentinel core (Oct 30)
@@ -231,6 +233,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
   - [x] retry policy (§9.9): ASK + SOFT-BLOCK with fixable feedback, invalid plans, build errors; HARD findings never retry; round trace on overlay
   - [x] demo triggers: F3 cup-next-to-laptop / F4 default presets; F3 pour BLOCKs (soft) → replans (cup to (0.15, 0.25)) → ALLOWs (`out/demo_replan.mp4`)
 - [x] **L-07** Live monitor: re-check at perception rate → HALT → replan from new state (100 ms `person_in_path`, freeze, clear-1s, fresh-plan replan; F6 demo trigger)
+- [x] **L-08** Compound-goal step budget: MAX_STEPS 20 → 30 + prompt bans placeholder steps and requires finishing the LAST sub-goal (grasp + hand_to delivery, not hovering)
 - **Done when:** "Give me the knife" ends with a handle-first hand-over **without** owner input, and the sticky note is BLOCKed with no retries.
 
 ### Phase 5: Dashboard (Nov 1)
@@ -458,6 +461,9 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.39 | Oct 30 | F-02 README rewrite (pitch + GIF + problem + diagram + bench results + limits + models + try-it) + F-05 spark-open flag; success criteria 1-4 ticked (benchmark headline + video/X/submit still open) |
 | v1.40 | Oct 30 | F-07 spec: HD/close re-records (1280x960 dual-camera, same plans) + sticky_note printed texture; recording via throwaway scripts, no product code changes |
 | v1.41 | Nov 2 | D-16: 5 more judge chips (throw/cut-finger/hit-laptop refusals, note-read BLOCK, red-mug; 20 fixtures replay-pinned), lane-B refusal footer ("Stopped: {planner why}"), verdict banner under lane-B camera, Modal redeploy |
+| v1.42 | Nov 2 | G-11(b): LLM infers hazard props for uncatalogued detections (ASK-first, planner catalog-only, zero rule changes); live verify: "portable computer" -> electronic+fragile -> jug pour BLOCKs |
+| v1.43 | Nov 2 | S-08: IK staged fallback (move_to retries at 2 cm, ori strict) so sam-mode pours survive joint-limit floors; root cause was joint2 pinned, not solver weakness |
+| v1.44 | Nov 2 | L-08: MAX_STEPS 20 -> 30 + no-placeholder/finish-last-goal prompt rules (compound move+pour+deliver plans truncated at s20, cup never delivered) |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

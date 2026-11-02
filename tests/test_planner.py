@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from graph.scene_graph import load_props
-from planner.planner import plan_from_content, scene_facts
+from planner.planner import MAX_STEPS, plan_from_content, scene_facts
 from sim.motion import plan_to_motion
 from sim.world import load_scene
 
@@ -91,3 +91,14 @@ def test_scene_facts_include_people():
     assert owner["present"] is True and owner["reaching"] is True
     assert len(owner["hand_pos"]) == 3 and len(owner["torso_pos"]) == 3
     assert by_id["visitor"]["present"] is False
+
+
+def test_step_cap_fits_compound_goals():
+    # 20 truncated move+pour+deliver plans mid-goal (Nov 2 live).
+    full = [_step(f"s{i}", "set_speed", {"speed": "slow"})
+            for i in range(MAX_STEPS)]
+    steps, err = plan_from_content(_plan(*full), {"cup"})
+    assert err is None and len(steps) == MAX_STEPS
+    over = full + [_step("sX", "set_speed", {"speed": "slow"})]
+    steps, err = plan_from_content(_plan(*over), {"cup"})
+    assert steps is None and f"max {MAX_STEPS}" in err
