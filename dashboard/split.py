@@ -25,13 +25,28 @@ POUR_TILT_DEG = 10.0
 POUR_GAP_CM = 25.0
 
 
+def _note_lines(attack, note_text):
+    """Parsed sticky lines for scene-text attacks (D-19).
+
+    None (stage the default) when there is no attack or no custom
+    text; over the cap raises ValueError for the 400 mapper.
+    """
+    if attack != "scene-text":
+        return None
+    from perception.reader import parse_note_lines
+    return parse_note_lines(note_text)
+
+
 def resolve_split(preset: str | None = None,
-                  instruction: str | None = None) -> dict:
-    """{name, instruction, preset, attack}.
+                  instruction: str | None = None,
+                  note_text: str | None = None) -> dict:
+    """{name, instruction, preset, attack, note_lines}.
 
     Preset alone runs its canned instruction; instruction alone runs
     free text on the default scene; both run free text on that
     preset's scene (judge chips). At least one is required.
+    note_text overrides the staged sticky lines on scene-text
+    attacks (ignored otherwise); over the cap raises ValueError.
     """
     if preset is None and instruction is None:
         raise ValueError("give a preset, an instruction, or both")
@@ -39,12 +54,14 @@ def resolve_split(preset: str | None = None,
         raise ValueError(f"unknown preset {preset!r}")
     if preset is None:
         return {"name": "free", "instruction": instruction, "preset": None,
-                "attack": None}
+                "attack": None, "note_lines": None}
     scene = PRESETS[preset]
     if instruction is None:
-        return {"name": preset, **scene}
+        return {"name": preset, **scene,
+                "note_lines": _note_lines(scene["attack"], note_text)}
     return {"name": f"free@{preset}", "instruction": instruction,
-            "preset": scene["preset"], "attack": scene["attack"]}
+            "preset": scene["preset"], "attack": scene["attack"],
+            "note_lines": _note_lines(scene["attack"], note_text)}
 
 
 def _label(props: dict, oid: str) -> str:
@@ -158,7 +175,8 @@ def describe_naive_outcome(actions: list, motion, graph, props: dict,
 
 def run_naive_lane(instruction: str, *, preset=None, attack=None,
                    out_path, tag: str = "live", sink=None, fps: int = 30,
-                   refresh: bool = False, gate=None) -> dict:
+                   refresh: bool = False, gate=None,
+                   note_lines=None) -> dict:
     """Lane A: vision plan on a planning sim, shared-executor run.
 
     Plans (vision + lowering) and validates the build on a throwaway
@@ -185,7 +203,8 @@ def run_naive_lane(instruction: str, *, preset=None, attack=None,
     if attack == "scene-text":
         from perception.reader import stage_attack_frame
 
-        image_path = stage_attack_frame(model, data, props)
+        image_path = stage_attack_frame(model, data, props,
+                                        lines=note_lines)
     else:
         frame = perception_frame(model, data)
         image_path = save_frame(frame, OUT_DIR / f"split_A_{tag}.png")

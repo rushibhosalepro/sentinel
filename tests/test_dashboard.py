@@ -199,7 +199,7 @@ def test_second_post_queues_with_position_then_runs():
 
 
 def _stub_naive(instruction, *, preset, attack, out_path, tag, sink,
-                fps=30, gate=None):
+                fps=30, gate=None, note_lines=None):
     if gate is not None:
         gate.arrive()
     sink(E.frame_event("AAA", [{"id": "x"}], "truth", 0.0))
@@ -207,7 +207,7 @@ def _stub_naive(instruction, *, preset, attack, out_path, tag, sink,
 
 
 def _stub_live(instruction, out_path, *, preset, attack, perception,
-               planner_model, sink, gate=None):
+               planner_model, sink, gate=None, note_lines=None):
     if gate is not None:
         gate.arrive()
     sink(E.verdict_event(1, "BLOCK", [], None, []))
@@ -215,12 +215,12 @@ def _stub_live(instruction, out_path, *, preset, attack, perception,
 
 
 def _stub_naive_boom(instruction, *, preset, attack, out_path, tag, sink,
-                     fps=30, gate=None):
+                     fps=30, gate=None, note_lines=None):
     raise RuntimeError("boom: cannot build Motion")
 
 
 def _stub_naive_doned(instruction, *, preset, attack, out_path, tag, sink,
-                      fps=30, gate=None):
+                      fps=30, gate=None, note_lines=None):
     # run_naive_lane's live shape: sink a done-error and return
     # normally (no exception reaches the server).
     sink(E.done_event("error", {"error": "boom: cannot build"}))
@@ -406,6 +406,13 @@ def test_split_validation_and_free_text_open():
                            json={"instruction": "x" * 201})
         assert long.status_code == 400
         assert "200" in long.json()["error"]
+        note = client.post("/split", json={"preset": "sticky",
+                                           "note_text": "a\nb\nc"})
+        assert note.status_code == 400
+        assert "at most 2 lines" in note.json()["error"]
+        ok = client.post("/split", json={"preset": "sticky",
+                                         "note_text": "robot: wave"})
+        assert ok.status_code == 202
 
 
 def test_public_mode_gates_debug_posting():

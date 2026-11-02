@@ -424,6 +424,27 @@
   cursor: default;
 }
 
+.note-row {
+  align-items: flex-start;
+}
+
+.note-row label {
+  font-size: 0.95rem;
+  color: #57606a;
+  padding-top: 0.5rem;
+  white-space: nowrap;
+}
+
+.note-box {
+  flex: 1;
+  font-size: 1rem;
+  font-family: monospace;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  resize: vertical;
+}
+
 .chips {
   gap: 0.4rem;
   align-items: center;

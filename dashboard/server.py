@@ -51,6 +51,7 @@ class Instruction(BaseModel):
 class SplitRequest(BaseModel):
     preset: str | None = None  # knife | water | sticky (open to all)
     instruction: str | None = None  # free text (open to all, <=200 ch)
+    note_text: str | None = None  # sticky note override (D-19)
     model: str = "spark"
     token: str | None = None  # legacy: /split no longer needs it
 
@@ -198,11 +199,13 @@ SPLIT_PRESETS = {"knife": "default", "water": "cup_next_to_laptop",
                  "sticky": "default"}
 
 
-def render_split_idle(preset: str, idle: dict) -> dict:
+def render_split_idle(preset: str, idle: dict,
+                      note_lines=None) -> dict:
     """Clean demo-camera frame event for a split preset (D-08).
 
-    No boxes. Sticky draws the attack note text on the frame (same
-    staging as the demo). Raises ValueError on unknown presets.
+    No boxes. Sticky draws the note text on the frame (same staging
+    as the demo): note_lines or the default attack lines. Raises
+    ValueError on unknown presets.
     """
     import numpy as np
 
@@ -227,7 +230,9 @@ def render_split_idle(preset: str, idle: dict) -> dict:
         cu, _, _ = project(corners, cam)
         width_px = max(12, int(np.ptp(np.asarray(cu, dtype=float))))
         rgb = np.asarray(stage_note_text(rgb, (int(u), int(v)),
-                                         ATTACK_LINES,
+                                         note_lines
+                                         if note_lines is not None
+                                         else ATTACK_LINES,
                                          max_width_px=width_px))
     return frame_event(encode_jpeg_b64(rgb), [], "truth", 0.0)
 
@@ -417,8 +422,9 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         _publish(frame)
         _publish(graph)
 
-    def _publish_split_idle(preset: str, clear: bool = True):
-        """Render once (cached per preset), send to both lanes (D-08).
+    def _publish_split_idle(preset: str, clear: bool = True,
+                              note_lines=None):
+        """Render once (cached per preset + note), send to both lanes.
 
         Idle always carries run 0: it belongs to no run. clear=True
         (explicit /split-scene) replaces old run frames/history with
@@ -426,11 +432,13 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         fills lanes that have no frame yet, so a run that published
         while the render was in flight is never clobbered.
         """
+        key = (preset, "\n".join(note_lines)
+               if note_lines is not None else "")
         with state["render_lock"]:
-            if preset not in state["split_idle_frames"]:
-                state["split_idle_frames"][preset] = render_split_idle(
-                    preset, state["idle"])
-            frame = state["split_idle_frames"][preset]
+            if key not in state["split_idle_frames"]:
+                state["split_idle_frames"][key] = render_split_idle(
+                    preset, state["idle"], note_lines=note_lines)
+            frame = state["split_idle_frames"][key]
         with state["lock"]:
             state["split_preset"] = preset
             if clear:
@@ -473,9 +481,16 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         return {"preset": preset}
 
     @app.get("/split-scene")
-    def split_scene(preset: str = "knife"):
+    def split_scene(preset: str = "knife",
+                      note_text: str | None = None):
+        from perception.reader import parse_note_lines
+
         try:
-            _publish_split_idle(preset)
+            note_lines = parse_note_lines(note_text)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        try:
+            _publish_split_idle(preset, note_lines=note_lines)
         except ValueError:
             return JSONResponse({"error": f"unknown preset {preset!r}"},
                                 status_code=404)
@@ -543,7 +558,8 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
 
         try:
             spec = resolve_split(preset=body.preset,
-                                 instruction=body.instruction)
+                                 instruction=body.instruction,
+                                 note_text=body.note_text)
         except ValueError as e:
             return JSONResponse({"error": str(e)}, status_code=400)
         if body.instruction is not None:
@@ -587,11 +603,12 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             ("A", split_naive,
              {"preset": spec["preset"], "attack": spec["attack"],
               "out_path": str(out / f"split_A_{tag}.mp4"), "tag": tag,
-              "fps": 30, "gate": gate}),
+              "fps": 30, "gate": gate,
+              "note_lines": spec["note_lines"]}),
             ("B", split_live,
              {"preset": spec["preset"], "attack": spec["attack"],
               "perception": "truth", "planner_model": model,
-              "gate": gate}),
+              "gate": gate, "note_lines": spec["note_lines"]}),
         )
 
         def _lane(lane, fn, kwargs):

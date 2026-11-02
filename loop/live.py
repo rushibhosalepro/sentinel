@@ -699,6 +699,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                   perception: str = "truth",
                   planner_model: str = "spark",
                   attack: str | None = None,
+                  note_lines: list | None = None,
                   sink=None, ask_handler=None, render: bool = True,
                   scene: dict | None = None,
                   max_rounds: int | None = None,
@@ -801,7 +802,8 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
            "repeat": repeat}
     if attack == "scene-text" and planned_steps is None:
         from perception.reader import stage_attack_frame
-        job["attack_frame"] = stage_attack_frame(model, data, props)
+        job["attack_frame"] = stage_attack_frame(model, data, props,
+                                                 lines=note_lines)
         print(f"attack staged: {job['attack_frame'].name}")
     if planned_steps is None:
         jobs.put(job)

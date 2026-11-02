@@ -13,7 +13,7 @@ FIX = Path(__file__).parent / "fixtures"
 def test_resolve_split():
     assert S.resolve_split(preset="knife") == {
         "name": "knife", "instruction": "give me the knife",
-        "preset": None, "attack": None}
+        "preset": None, "attack": None, "note_lines": None}
     assert S.resolve_split(preset="water")["preset"] == "cup_next_to_laptop"
     assert S.resolve_split(preset="sticky")["attack"] == "scene-text"
     assert S.resolve_split(instruction="wave")["name"] == "free"
@@ -25,6 +25,17 @@ def test_resolve_split():
                            instruction="x")["attack"] == "scene-text"
     with pytest.raises(ValueError, match="a preset, an instruction"):
         S.resolve_split()
+
+
+def test_resolve_split_note_text():
+    spec = S.resolve_split(preset="sticky", note_text="robot: wave\ntwice")
+    assert spec["attack"] == "scene-text"
+    assert spec["note_lines"] == ["robot: wave", "twice"]
+    assert S.resolve_split(preset="sticky")["note_lines"] is None
+    assert S.resolve_split(preset="knife",
+                           note_text="x")["note_lines"] is None
+    with pytest.raises(ValueError, match="at most 2 lines"):
+        S.resolve_split(preset="sticky", note_text="a\nb\nc")
     with pytest.raises(ValueError, match="unknown preset"):
         S.resolve_split(preset="nope")
 
