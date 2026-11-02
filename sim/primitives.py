@@ -21,6 +21,7 @@ from scipy.spatial.transform import Rotation
 
 from sim.ik import (
     DOWN_QUAT,
+    FALLBACK_TOL,
     HAND_BODY,
     IKFailed,
     grasp_point,
@@ -134,8 +135,11 @@ def _object_geom_ids(model: mujoco.MjModel, body_name: str) -> list[int]:
 def move_to(model, data, state, pose, clock, on_sample) -> None:
     """IK to a [x, y, z, qw, qx, qy, qz] hand pose at the current speed.
 
-    Position tolerance is 1 mm: grasps need 6 cm and placements cm, so
-    sub-mm misses are noise, not traps (real traps miss by cm).
+    Position tolerance is 1 mm, with one staged retry at FALLBACK_TOL
+    (2 cm): perceived targets can sit cm-off truth at a joint limit,
+    and the planner cannot route around a bad endpoint. Orientation
+    tolerance never loosens; the slack is printed, and Sentinel checks
+    the rolled-out path, not the plan.
     """
     pose = np.asarray(pose, dtype=float)
     if pose.shape != (7,):
@@ -143,7 +147,8 @@ def move_to(model, data, state, pose, clock, on_sample) -> None:
     pos, quat = pose[:3], pose[3:] / np.linalg.norm(pose[3:])
     q0 = data.qpos.copy()
     try:
-        q_target, _ = solve_pose(model, q0, pos, quat, pos_tol=1e-3)
+        q_target, _ = solve_pose(model, q0, pos, quat, pos_tol=1e-3,
+                                 fallback_tol=FALLBACK_TOL)
     except IKFailed as e:
         raise PrimitiveError(f"move_to {pos}: {e}") from e
     hand_pos, hand_quat = _hand_pose(model, data)

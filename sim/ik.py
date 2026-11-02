@@ -36,6 +36,12 @@ DT = 0.05
 MAX_ITERS = 500
 POS_TOL = 1e-4
 ORI_TOL = 1e-2  # rad; enforced when orientation_cost > 0
+# Staged-fallback position tolerance for move_to: perceived targets can
+# sit cm-off truth at a joint limit (sam jug/cup floor at 7.5/12.5 mm
+# with joint2 pinned), so a tight-only solve kills the run with no
+# recovery. The rollout records where the arm really goes and Sentinel
+# checks that path, so grasp-scale slack (grasp needs 6 cm) is sound.
+FALLBACK_TOL = 2e-2
 
 
 class IKFailed(Exception):
@@ -71,12 +77,42 @@ def solve_pose(
     orientation_cost: float = 1.0,
     max_iters: int = MAX_ITERS,
     pos_tol: float = POS_TOL,
+    fallback_tol: float | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Solve IK for the hand body at (target_pos, target_quat_wxyz).
 
     Returns (q_solution, info). Raises IKFailed on QP failure or when the
     position (or orientation, if weighted) error stays above tolerance.
+    `fallback_tol` (looser than pos_tol): retry once at that tolerance
+    instead of failing; info gains slack=True and the miss is printed.
+    Orientation tolerance never loosens.
     """
+    try:
+        return _solve_attempt(
+            model, q0, target_pos, target_quat_wxyz,
+            orientation_cost, max_iters, pos_tol)
+    except IKFailed:
+        if fallback_tol is None or fallback_tol <= pos_tol:
+            raise
+        q, info = _solve_attempt(
+            model, q0, target_pos, target_quat_wxyz,
+            orientation_cost, max_iters, fallback_tol)
+        info["slack"] = True
+        print(f"IK slack: pos_err {info['pos_err'] * 100:.1f} cm "
+              f"(tight tol {pos_tol:.0e} missed)")
+        return q, info
+
+
+def _solve_attempt(
+    model: mujoco.MjModel,
+    q0: np.ndarray,
+    target_pos: np.ndarray,
+    target_quat_wxyz: np.ndarray,
+    orientation_cost: float,
+    max_iters: int,
+    pos_tol: float,
+) -> tuple[np.ndarray, dict]:
+    """One IK run at a fixed position tolerance (see solve_pose)."""
     target = mink.SE3.from_rotation_and_translation(
         mink.SO3.from_matrix(quat_wxyz_to_mat(target_quat_wxyz)),
         np.asarray(target_pos, dtype=float),
