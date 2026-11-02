@@ -147,6 +147,10 @@ def describe_naive_outcome(actions: list, motion, graph, props: dict,
             short = _label(props, obj).split()[-1]
             return (f"Offered the {short} but the owner "
                     "never took it")
+    if actions and all(a.get("skill") == "move_home"
+                      for a in actions):
+        why = (actions[0].get("why") or "nothing to do")[:120]
+        return f"Planner stopped: {why} (no Sentinel checks)"
     n = len(actions)
     return (f"Ran {n} step{'s' if n != 1 else ''} "
             "with no Sentinel checks")

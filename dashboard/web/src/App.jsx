@@ -8,7 +8,7 @@ const GH = 420
 const GPAD = 34
 const MIN_SEP_PX = 36
 
-const KIND_COLORS = {
+export const KIND_COLORS = {
   ALLOW: '#1a7f37',
   ASK: '#b45309',
   BLOCK: '#cf222e',

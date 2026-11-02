@@ -289,6 +289,27 @@
   color: #cf222e;
 }
 
+.verdict-banner {
+  font-size: 1.05rem;
+  margin: 0.5rem 0;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.verdict-badge {
+  font-size: 1.15rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.verdict-why {
+  color: #333;
+}
+
+.verdict-halt {
+  margin-left: 0.4rem;
+  font-size: 0.9rem;
+}
+
 .footer-b {
   color: #1a7f37;
 }

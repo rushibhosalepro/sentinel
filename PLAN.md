@@ -283,6 +283,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [ ] **F-03** 3-minute demo video (script in §8), uploaded and public
 - [ ] **F-04** X post with the sticky-note / knife clip; link submitted for Most Viral
 - [x] **F-05** Flag Muse Spark Open usage for the open-weights bonus
+- [x] **F-07** HD re-records (no product changes): lane A + B knife/water + demo_halt at 1280x960 from demo + handover cameras (`_hd` / `_close`), same plans as current clips; sticky_note gets a real printed-text texture, attack frame re-recorded without overlay text
 - [ ] **F-06** Submit on the CV platform; check repo + video are public
 - **Done when:** submitted before **Nov 4, 9 PM ET (Nov 5, 6:30 AM IST)**; aim for Nov 4 evening IST.
 
@@ -455,6 +456,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.37 | Oct 29 | D-14 spec: shared lane executor (sentinel flag; lane A runs loop.live path: same stepping, person reacts, no check/replan/HALT; end-state A footers; simultaneous start + elapsed + dim; re-record 3 split mp4s) |
 | v1.38 | Oct 29 | D-15 spec: lane A recipient mapping (speaker = owner, visitor only if named) + visitor-drop footer + end-aware shadow notes + note-trusting naive prompt (or sticky leaves featured 4) + mp4 caption sizes; re-record + redeploy |
 | v1.39 | Oct 30 | F-02 README rewrite (pitch + GIF + problem + diagram + bench results + limits + models + try-it) + F-05 spark-open flag; success criteria 1-4 ticked (benchmark headline + video/X/submit still open) |
+| v1.40 | Oct 30 | F-07 spec: HD/close re-records (1280x960 dual-camera, same plans) + sticky_note printed texture; recording via throwaway scripts, no product code changes |
+| v1.41 | Nov 2 | D-16: 5 more judge chips (throw/cut-finger/hit-laptop refusals, note-read BLOCK, red-mug; 20 fixtures replay-pinned), lane-B refusal footer ("Stopped: {planner why}"), verdict banner under lane-B camera, Modal redeploy |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

@@ -965,7 +965,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
         emit(plan_event(steps, 0, rows=plan_rows))
         rounds, trace, ask = 0, [], None
     else:
-        _, script, rounds, trace, ask, plan_rows = take_result()
+        steps, script, rounds, trace, ask, plan_rows = take_result()
     if gate is not None:
         gate.arrive()
     dt = 1.0 / fps
@@ -1174,7 +1174,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
                                           "cost_log": cost_log,
                                           "verdict_final": verdict_final,
                                           "repeat": repeat})
-                                _, script, rounds, trace, ask, plan_rows = \
+                                steps, script, rounds, trace, ask, plan_rows = \
                                     take_result()
                                 segments = script["segments"]
                                 seg_i, seg_k, lh = 0, 0, None
@@ -1231,10 +1231,19 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
     if sink is not None and planned_steps is None:
         from dashboard.events import done_event
         from dashboard.split_steps import lane_b_footer
+        stopped = None
+        prims = [s.get("primitive") for s in steps]
+        if prims and set(prims) <= {"move_to", "stop"} \
+                and "stop" in prims:
+            why = next((s.get("why") or ""
+                        for s in reversed(steps)
+                        if s.get("primitive") == "stop"), "")
+            stopped = (why[:140] if why else "no action planned")
         emit(done_event("complete", {
             "takers": took, "rounds": rounds,
             "duration_s": round(vnow, 2), "ask": ask,
-            "footer": lane_b_footer("ALLOW", plan_rows, [], props),
+            "footer": lane_b_footer("ALLOW", plan_rows, [], props,
+                                    stopped=stopped),
             "motion": _motion_summary(script["motion"])}))
     return result
 

@@ -262,8 +262,15 @@ def finding_plain(finding: dict, props: dict | None) -> str:
 
 
 def lane_b_footer(kind: str, rows: list, findings: list,
-                  props: dict | None) -> str:
-    """One plain sentence for lane B's done state."""
+                  props: dict | None, stopped: str | None = None) -> str:
+    """One plain sentence for lane B's done state.
+
+    stopped is the final stop step's why when the executed plan
+    moved nothing (staging + stop): the planner's own reason, so a
+    refusal credits the planner instead of reading as a blank ALLOW.
+    """
+    if kind == "ALLOW" and stopped:
+        return f"Planner stopped: {stopped}"
     if kind == "BLOCK":
         what = finding_plain(findings[0], props) if findings \
             else "blocked"

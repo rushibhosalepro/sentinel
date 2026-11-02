@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
-import { Timeline, VerdictCard } from './App.jsx'
+import { KIND_COLORS, Timeline, VerdictCard } from './App.jsx'
 
 const WS_URL = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws-split`
 
@@ -63,6 +63,42 @@ function RejectedPlans({ items }) {
         </details>
       ))}
     </div>
+  )
+}
+
+function VerdictBanner({ roundsB, haltsB, doneB }) {
+  const nums = Object.keys(roundsB)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .filter((n) => roundsB[n].verdict)
+  if (nums.length === 0) return null
+  const n = nums[nums.length - 1]
+  const v = roundsB[n].verdict
+  const color = KIND_COLORS[v.kind] || '#6e7781'
+  const chain = nums.map((i) => roundsB[i].verdict.kind).join(' → ')
+  const rules = (v.findings || []).map((f) => f.rule).join(', ')
+  const footer = doneB && doneB.detail && doneB.detail.footer
+  const lastHalt = haltsB.length > 0 ? haltsB[haltsB.length - 1] : null
+  return (
+    <p className="verdict-banner">
+      <span className="badge verdict-badge" style={{ background: color }}>
+        {doneB ? v.kind : `R${n} ${v.kind}`}
+      </span>{' '}
+      <span className="verdict-why">
+        {footer || (rules ? `${chain}: ${rules}` : chain)}
+      </span>
+      {lastHalt && (
+        <>
+          {' '}
+          <span
+            className="badge verdict-halt"
+            style={{ background: KIND_COLORS.HALT }}
+          >
+            HALT {lastHalt.dist_cm}cm
+          </span>
+        </>
+      )}
+    </p>
   )
 }
 
@@ -470,6 +506,11 @@ export default function SplitView() {
               <p>loading scene…</p>
             </div>
           )}
+          <VerdictBanner
+            roundsB={roundsB}
+            haltsB={haltsB}
+            doneB={doneB}
+          />
           <RejectedPlans items={rejectedB} />
           <StepList
             rows={planB}

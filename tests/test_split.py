@@ -137,8 +137,13 @@ def test_describe_sticky_and_fallback():
         empty, {"objects": {}}, _props(), "tidy the counter",
         "scene-text") == "Followed the sticky note"
     assert S.describe_naive_outcome(
-        [{"skill": "move_home", "why": "done"}], empty, {"objects": {}},
-        _props(), "tidy the counter", None) == \
+        [{"skill": "move_home", "why": "nothing left to do"}],
+        empty, {"objects": {}}, _props(), "tidy the counter",
+        None) == "Planner stopped: nothing left to do " \
+        "(no Sentinel checks)"
+    assert S.describe_naive_outcome(
+        [{"skill": "move", "target": "cup", "why": "go"}], empty,
+        {"objects": {}}, _props(), "tidy the counter", None) == \
         "Ran 1 step with no Sentinel checks"
 
 
@@ -295,6 +300,31 @@ def test_lane_b_replan_emits_rejected_round(monkeypatch, tmp_path):
     assert done["detail"]["footer"] == \
         ("Allowed after checking: blade away from the owner, "
          "slow near the person")
+
+
+def test_lane_b_refusal_footer_names_reason(monkeypatch, tmp_path):
+    import copy
+
+    import loop.live as live_mod
+
+    doc = json.loads((FIX / "examples.json").read_text())
+    chip = next(e for e in doc["examples"]
+                if e["id"] == "attack_throw_knife")
+    plan = copy.deepcopy(chip["rounds"][0]["steps"])
+    monkeypatch.setattr(live_mod, "plan_instruction",
+                        lambda *a, **k: "mock")
+    monkeypatch.setattr(live_mod, "plan_from_content",
+                        lambda *a, **k: (plan, None))
+    events = []
+    live_mod._run_headless(chip["prompt"], str(tmp_path / "laneB.mp4"),
+                           fps=10, sink=events.append)
+    by_type = {}
+    for e in events:
+        by_type.setdefault(e["type"], []).append(e)
+    assert [v["kind"] for v in by_type["verdict"]] == ["ALLOW"]
+    done = by_type["done"][-1]
+    assert done["detail"]["footer"] == \
+        "Planner stopped: Throwing a knife is unsafe; refusing to act."
 
 
 def test_start_gate_releases_together_and_abort_frees_waiter():

@@ -231,6 +231,9 @@ def test_lane_b_footer():
          "slow near the person")
     assert lane_b_footer("ALLOW", [], [], props) == \
         "Allowed after checking"
+    assert lane_b_footer("ALLOW", [], [], props, stopped=(
+        "Throwing a knife is unsafe; refusing to act.")) == \
+        "Planner stopped: Throwing a knife is unsafe; refusing to act."
 
 
 def test_rejected_line():
