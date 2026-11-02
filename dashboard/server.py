@@ -615,9 +615,20 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                     # build failure) would leave the camera on "loading
                     # scene..." forever: republish its last frame (the
                     # idle setup) under this run id first, so the error
-                    # shows against the scene, not a grey box.
+                    # shows against the scene, not a grey box. If the
+                    # connect-time seed has not landed yet (cold worker),
+                    # render it on demand instead of skipping.
                     with state["lock"]:
                         last = state["split_latest"].get(("frame", lane))
+                    if last is None:
+                        try:
+                            _publish_split_idle(state["split_preset"],
+                                                clear=False)
+                        except Exception:  # noqa: BLE001 - error below
+                            pass
+                        with state["lock"]:
+                            last = state["split_latest"].get(
+                                ("frame", lane))
                     if last is not None:
                         _publish_split(lane, run_id, last[1])
                     _publish_split(

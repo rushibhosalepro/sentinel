@@ -278,6 +278,31 @@ def test_split_error_lane_republishes_last_frame():
         assert "boom" in done["detail"]["error"]
 
 
+def test_split_error_lane_renders_frame_when_unseeded():
+    # Cold worker: the run posts before any socket seeded the idle
+    # frames, so the error path renders on demand. Connect after the
+    # instant stubs finish; catchup must carry a lane-A frame.
+    app = create_app(runner=_run_plan_done, split_naive=_stub_naive_boom,
+                     split_live=_stub_live)
+    with TestClient(app) as client:
+        r = client.post("/split", json={"preset": "knife"})
+        assert r.status_code == 202
+        run_id = r.json()["run_id"]
+        time.sleep(5.0)
+        with client.websocket_connect("/ws-split") as ws:
+            got = []
+            for _ in range(8):
+                ev = ws.receive_json()
+                got.append(ev)
+                dones = [e for e in got if e["type"] == "done"
+                         and e["run_id"] == run_id]
+                if len(dones) == 2:
+                    break
+    lane_a = [e for e in got if e.get("lane") == "A"
+              and e["run_id"] == run_id]
+    assert sorted(e["type"] for e in lane_a) == ["done", "frame"]
+
+
 def _split_app():
     return create_app(runner=_run_plan_done, split_naive=_stub_naive,
                       split_live=_stub_live)
