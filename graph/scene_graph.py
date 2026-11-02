@@ -92,7 +92,8 @@ def dashboard_payload(g: nx.MultiDiGraph, props: dict) -> dict:
                               e["dist_cm"] or 0.0))
     known = set(props["objects"])
     extra = [{"id": node, "label": attrs.get("label", node),
-              "pos": [float(v) for v in attrs["pos"]]}
+              "pos": [float(v) for v in attrs["pos"]],
+              "inferred": bool(attrs.get("inferred", False))}
              for node, attrs in g.nodes(data=True)
              if attrs.get("type") == NODE_OBJECT
              and attrs.get("track_id", node) not in known
@@ -300,6 +301,37 @@ def upsert_object(g: nx.MultiDiGraph, props: dict, obj: str,
     g.add_edge(node, person_id(spec["owner"]), type=EDGE_OWNED_BY, ts=ts)
 
 
+def _slug(label: str) -> str:
+    cleaned = "".join(c if c.isalnum() else " "
+                      for c in label.lower()).split()
+    return "_".join(cleaned) or "object"
+
+
+def spawn_inferred(g: nx.MultiDiGraph, label: str, det, ts: float,
+                   idx: int, properties: list, infer_conf: float,
+                   why: str) -> str:
+    """Spawn a seen_* node with LLM-inferred properties. (G-11)
+
+    Like spawn_unknown but carries HAS edges, so geometric rules
+    fire on novel objects. No owner edge (ownership is never
+    inferred). Returns the node id ("seen_<slug>_1", ...).
+    """
+    node = f"seen_{_slug(label)}_{idx + 1}"
+    g.add_node(node, type=NODE_OBJECT, label=label, track_id=node,
+               pos=np.asarray(det.centroid).tolist(),
+               bbox3d=[*np.asarray(det.bbox_min).tolist(),
+                       *np.asarray(det.bbox_max).tolist()],
+               conf=float(det.conf), infer_conf=float(infer_conf),
+               inferred=True, why=why, last_seen=ts, stale=False,
+               tracked=True, held=False, owner=None)
+    for prop in properties:
+        pid = property_id(prop)
+        if not g.has_node(pid):
+            g.add_node(pid, type=NODE_PROPERTY, name=prop)
+        g.add_edge(node, pid, type=EDGE_HAS, ts=ts)
+    return node
+
+
 def spawn_unknown(g: nx.MultiDiGraph, label: str, det, ts: float,
                   idx: int = 0) -> str:
     """Spawn an unknown_object node (no properties, no owner). (G-09)
@@ -318,25 +350,41 @@ def spawn_unknown(g: nx.MultiDiGraph, label: str, det, ts: float,
 
 def build_perception_graph(model, data, detections,
                            props: dict | None = None,
-                           ts: float | None = None) -> nx.MultiDiGraph:
+                           ts: float | None = None,
+                           infer_fn=None) -> nx.MultiDiGraph:
     """Full G-09 graph: priors + matched objects + unknowns + relations.
 
     Detections carry `match` (props id or None); duplicates are demoted
-    to unknown (highest confidence keeps the id). Pure (no network).
+    to unknown (highest confidence keeps the id). infer_fn(det, seq)
+    (G-11) returns a parse_inference-shaped dict or None for unmatched
+    detections; a non-empty property list spawns a seen_* node instead
+    of plain unknown. Pure when infer_fn is pure (no network).
     """
     props = props if props is not None else load_props()
     ts = data.time if ts is None else ts
     g = init_perception_graph(model, data, props, ts)
     taken: set[str] = set()
     unknowns = 0
+    inferred = 0
     for det in sorted(detections, key=lambda d: -d.conf):
         oid = det.match
         if oid is not None and (oid in taken
                                 or oid not in props["objects"]):
             oid = None
         if oid is None:
-            spawn_unknown(g, det.label or det.prompt, det, ts, unknowns)
-            unknowns += 1
+            res = infer_fn(det, inferred) \
+                if infer_fn is not None else None
+            learned = list(res.get("properties") or []) if res else []
+            if learned:
+                spawn_inferred(g, det.label or det.prompt, det, ts,
+                               inferred, learned,
+                               res.get("confidence", 0.0),
+                               res.get("why", ""))
+                inferred += 1
+            else:
+                spawn_unknown(g, det.label or det.prompt, det, ts,
+                              unknowns)
+                unknowns += 1
         else:
             taken.add(oid)
             upsert_object(g, props, oid, det, ts)

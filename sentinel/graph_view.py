@@ -45,9 +45,10 @@ def graph_snapshot(model, data, props: dict,
             objects[oid] = {"pos": np.asarray(p["pos"], dtype=float),
                             "quat": np.array([1.0, 0.0, 0.0, 0.0]),
                             "extent": list(p["extent"]),
-                            "properties": list(
-                                spec.get("properties", [])),
-                            "owner": spec.get("owner"),
+                            "properties": list(p.get(
+                                "properties", spec.get("properties", []))),
+                            "owner": p.get("owner", spec.get("owner")),
+                            "inferred": bool(p.get("inferred", False)),
                             "conf": float(p["conf"]),
                             "label": spec.get("label", oid),
                             "prompts": list(spec.get("prompts", []))}

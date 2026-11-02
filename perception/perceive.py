@@ -15,9 +15,10 @@ from pathlib import Path
 import numpy as np
 
 from graph.scene_graph import build_perception_graph
-from graph.schema import NODE_OBJECT
+from graph.schema import EDGE_HAS, NODE_OBJECT
 from perception.detect import detect_cache_path, detect_objects
 from perception.detections import detections_from_spark
+from perception.properties import infer_properties
 from perception.sam import box_cache_path, segment_boxes
 
 
@@ -63,7 +64,27 @@ def perceive_frame(model, data, frame: dict, image_path: Path,
     _add_usage(usage, _cache_usage(box_cache_path(image_path, boxes)))
     dets = detections_from_spark(spark_dets, sam_result, frame["depth"],
                                  frame["cam"], props)
-    graph = build_perception_graph(model, data, dets, props)
+    # G-11: infer hazard properties for unmatched detections. One
+    # failure degrades that box to plain unknown, never the frame.
+    infer_map = {}
+    seq = 0
+    for det in dets:
+        if det.match is not None:
+            continue
+        label = det.label or det.prompt
+        try:
+            res, one = infer_properties(
+                image_path, seq, label, det.box2d, width, height,
+                refresh=refresh)
+        except Exception as e:  # noqa: BLE001 - degrade to unknown
+            print(f"inference skipped for {label!r}: {e}")
+            res, one = None, None
+        _add_usage(usage, one)
+        infer_map[id(det)] = res
+        seq += 1
+    graph = build_perception_graph(
+        model, data, dets, props,
+        infer_fn=lambda det, _s: infer_map.get(id(det)))
     perceived, positions = {}, {}
     for node, attrs in graph.nodes(data=True):
         if attrs.get("type") != NODE_OBJECT or not attrs.get("tracked"):
@@ -74,8 +95,17 @@ def perceive_frame(model, data, frame: dict, image_path: Path,
             "pos": [float(v) for v in attrs["pos"]],
             "extent": [float(v) for v in (hi - lo) / 2.0],
             "conf": float(attrs["conf"]),
+            "properties": sorted(
+                {b.split("prop:", 1)[1]
+                 for _, b, d in graph.out_edges(node, data=True)
+                 if d.get("type") == EDGE_HAS and "prop:" in b}),
+            "inferred": bool(attrs.get("inferred", False)),
+            "owner": attrs.get("owner"),
         }
-        if not attrs.get("unknown"):
+        if not attrs.get("unknown") and not attrs.get("inferred"):
+            # Planner sees catalog ids only (G-11): inferred nodes
+            # have no sim body to grasp; the checker still guards
+            # motion around them.
             positions[node] = perceived[node]["pos"]
     return {"graph": graph, "detections": dets, "spark": spark_dets,
             "perceived": perceived, "positions": positions,
