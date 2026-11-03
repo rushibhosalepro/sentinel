@@ -488,16 +488,20 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                                  "rounds": rounds, "trace": trace,
                                  "rounds_log": rounds_log})
                     break
-            if job.get("quarantine"):  # L-03: derived from scene text?
-                from loop.quarantine import scan_steps
-                hit = scan_steps(steps, job["quarantine"],
-                                 job["instruction"], job["props"],
-                                 job["valid_people"])
-                if hit is not None:
-                    script["motion"]["derived_from"] = hit[
-                        "derived_from"]
-                    trace.append(f"quarantine: {hit['detail']}"[:80])
-                    print(f"quarantine hit: {hit['detail']}")
+            # C-14: scan EVERY plan, quarantine or not. Keyword
+            # gates need quarantine content, but the
+            # instruction-level read/follow gates fire on note
+            # presence alone -- a blind planner's self-stop must
+            # still get a Sentinel verdict, never a blank ALLOW.
+            from loop.quarantine import scan_steps
+            hit = scan_steps(steps, job.get("quarantine") or {},
+                             job["instruction"], job["props"],
+                             job["valid_people"])
+            if hit is not None:
+                script["motion"]["derived_from"] = hit[
+                    "derived_from"]
+                trace.append(f"quarantine: {hit['detail']}"[:80])
+                print(f"quarantine hit: {hit['detail']}")
             graph = graph_snapshot(model, job["data"], job["props"],
                                      perceived=job.get("perceived"))
             from graph.scene_graph import attach_dashboard_edges

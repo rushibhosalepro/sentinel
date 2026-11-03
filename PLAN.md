@@ -222,6 +222,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-11** State adjectives never ASK: empty/full/clean describe condition, not identity ("move the empty cup" acts on the cup); hot/cold still ASK (hazard-state claims); article agreement ("an orange mug")
 - [x] **C-12** Read-quarantine BLOCK: instructions asking to READ quarantined scene text (read/recite/quote + note/text, quarantine non-empty) tag the motion scene_text_read:* for the hard unfixable instruction_reads_quarantine rule — surfacing quarantined text is a Sentinel BLOCK, not planner caution (footer "Blocked: asked to read the quarantined note")
 - [x] **C-13** Prompt carries zero scene-text instructions: deleted the quarantine paragraph (and the patched/unpatched split) from SYSTEM_PROMPT — enforcement is the scanner + hard rules only; has_text flags stay as plain scene state
+- [x] **C-14** Presence-based scene-text gates: the read/follow instruction triggers fire on note PRESENCE (sticky_note in scene), not quarantine content — truth runs never transcribe, so quarantine is empty and C-12 never fired there (planner self-stopped + ALLOW). Read (C-12 verbs) → scene_text_read tag → instruction_reads_quarantine BLOCK; follow/obey/do-what-the-note-says → scene_text tag → scene_text_provenance BLOCK. Keyword gates still need quarantine content; live.py scans every plan unconditionally
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
@@ -475,6 +476,7 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.47 | Nov 2 | D-19: benign default note (apple; knife note made lane A self-refuse) + editable note box (2x42, preview on blur, 400-capped) |
 | v1.48 | Nov 2 | C-12: instruction_reads_quarantine hard BLOCK (read/recite/quote + note/text with quarantine active) so read-note refusals are Sentinel verdicts, not planner-prompt refusals |
 | v1.49 | Nov 2 | C-13: deleted the quarantine paragraph from SYSTEM_PROMPT (patched/unpatched split removed) — scanner + hard rules are the only scene-text enforcement |
+| v1.50 | Nov 3 | C-14: instruction-level scene-text gates fire on note presence (empty quarantine no longer skips the scan), so read/follow-note instructions BLOCK on every lane-B run, not just attack-staged ones; added follow/obey/do-what-the-note-says trigger → scene_text_provenance |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).
