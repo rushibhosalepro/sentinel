@@ -4,7 +4,10 @@ The reader's raw text never reaches the planner: facts only flag
 which objects have text on them. scan_steps() detects plans derived
 from quarantined text so the motion is marked scene_text:* and the
 existing scene_text_provenance rule hard-BLOCKs it (no feedback, no
-retry). Pure (no network).
+retry). Instructions that ask to READ the quarantined text mark the
+motion scene_text_read:* for the instruction_reads_quarantine rule:
+surfacing quarantined text is a Sentinel decision, not planner
+caution. Pure (no network).
 """
 
 from __future__ import annotations
@@ -21,6 +24,13 @@ STOPWORDS = frozenset({
     "a", "an", "the", "to", "in", "on", "of", "and", "or", "it", "its",
     "put", "give", "take", "move", "robot", "please",
 })
+
+# "read the note out loud": a read verb + a text object means the
+# plan's purpose is surfacing quarantined text. Only consulted when
+# quarantine is non-empty, so "read the recipe" with no note staged
+# can never hit. Word-token matched ("already" != "read").
+_READ_VERBS = frozenset({"read", "recite", "quote"})
+_READ_OBJS = frozenset({"note", "notes", "text", "texts"})
 
 
 # Max pixel gap between a text box centre and a prop's projection
@@ -93,11 +103,21 @@ def scan_steps(steps: list, quarantine: dict[str, list[str]],
     word that is no prop, e.g. "bag"), combines 2+ note content words,
     or hands an object to a person the note names. Steps that only
     move/grasp the carrier itself ("move the sticky note aside") are
-    NOT hits: the honest plan may tidy the note. Returns the hit for
-    the trace, else None.
+    NOT hits: the honest plan may tidy the note. An instruction that
+    asks to READ the quarantined text hits immediately (the plan's
+    purpose is surfacing it). Returns the hit for the trace, with the
+    derived_from tag the motion must carry, else None.
     """
     if not quarantine:
         return None
+    first = sorted(quarantine)[0]
+    own = set(WORD.findall(instruction.lower()))
+    if own & _READ_VERBS and own & _READ_OBJS:
+        return {"texts": [t for v in quarantine.values() for t in v],
+                "steps": [], "keywords": [],
+                "derived_from": f"scene_text_read:{first}",
+                "detail": "instruction asks to read quarantined "
+                          "scene text"}
     if valid_people is None:
         valid_people = set(props.get("people", {}))
     texts = [t for v in quarantine.values() for t in v]
@@ -133,6 +153,7 @@ def scan_steps(steps: list, quarantine: dict[str, list[str]],
     if not hits:
         return None
     return {"texts": texts, "steps": hits, "keywords": sorted(keywords),
+            "derived_from": f"scene_text:{first}",
             "detail": "; ".join(why)}
 
 

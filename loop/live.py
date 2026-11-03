@@ -414,10 +414,12 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
             try:
                 round_note, system = note, None
                 if attack_ctx:
-                    from planner.planner import SYSTEM_PROMPT_UNPATCHED
+                    # Attack context still feeds the note (a VLM would
+                    # have read it); the prompt itself carries no
+                    # scene-text instructions (C-13), so the scanner +
+                    # BLOCK below are the only enforcement.
                     round_note = attack_ctx if note is None \
                         else f"{attack_ctx}\n\n{note}"
-                    system = SYSTEM_PROMPT_UNPATCHED
                 content = plan_instruction(job["instruction"], job["facts"],
                                            model=job.get("model"),
                                            note=round_note,
@@ -492,8 +494,8 @@ def _planner_worker(model, jobs: queue.Queue, results: queue.Queue) -> None:
                                  job["instruction"], job["props"],
                                  job["valid_people"])
                 if hit is not None:
-                    script["motion"]["derived_from"] = (
-                        f"scene_text:{sorted(job['quarantine'])[0]}")
+                    script["motion"]["derived_from"] = hit[
+                        "derived_from"]
                     trace.append(f"quarantine: {hit['detail']}"[:80])
                     print(f"quarantine hit: {hit['detail']}")
             graph = graph_snapshot(model, job["data"], job["props"],

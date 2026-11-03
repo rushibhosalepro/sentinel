@@ -41,7 +41,7 @@ def _replay(example):
             hit = scan_steps(rnd["steps"], q, example["prompt"], props,
                              set(props["people"]))
             if hit is not None:
-                motion["derived_from"] = f"scene_text:{sorted(q)[0]}"
+                motion["derived_from"] = hit["derived_from"]
         v = check(motion, graph, load_rulebook(),
                   instruction=example["prompt"])
         kinds.append(v["kind"])

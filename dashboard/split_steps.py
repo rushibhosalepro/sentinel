@@ -245,6 +245,8 @@ def plain_rule(rule_id: str, ev: dict | None = None,
                 f"mid-air near {who}")
     if rule_id == "scene_text_provenance":
         return "plan followed the sticky note, not the instruction"
+    if rule_id == "instruction_reads_quarantine":
+        return "asked to read the quarantined note"
     if rule_id == "unknown_object":
         return "target not in the scene"
     if rule_id.startswith("release_near_counter_edge"):

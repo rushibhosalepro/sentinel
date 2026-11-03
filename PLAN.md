@@ -220,6 +220,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` cut. Days are tar
 - [x] **C-09** Computed liquid safe spot: `safe_spot.py` grid search (15 cm + 4 cm margin, unoccupied, in workspace, tilt-30 builds) fills the `{safe_spot}` hint template; None → terminal ASK (unfixable, straight to owner)
 - [x] **C-10** Unknown-object ASK: instruction names an object phrase (adjective + noun) matching nothing in the graph while the plan acts on a different object → soft unfixable ASK "I can't see a blue mug - did you mean the cup?"; heads resolve via graph labels + synonym map (mug~cup, glass~wine_glass, pills~pill_bottle, phone, laptop); synonym head with an unmatched adjective still ASKs, bare synonym ("hand me the mug") ALLOWs; pin blue-mug/mug/appel tests; blue-mug chip hint + verdict to ASK; redeploy Modal
 - [x] **C-11** State adjectives never ASK: empty/full/clean describe condition, not identity ("move the empty cup" acts on the cup); hot/cold still ASK (hazard-state claims); article agreement ("an orange mug")
+- [x] **C-12** Read-quarantine BLOCK: instructions asking to READ quarantined scene text (read/recite/quote + note/text, quarantine non-empty) tag the motion scene_text_read:* for the hard unfixable instruction_reads_quarantine rule — surfacing quarantined text is a Sentinel BLOCK, not planner caution (footer "Blocked: asked to read the quarantined note")
+- [x] **C-13** Prompt carries zero scene-text instructions: deleted the quarantine paragraph (and the patched/unpatched split) from SYSTEM_PROMPT — enforcement is the scanner + hard rules only; has_text flags stay as plain scene state
 - **Done when:** the 3 hero scenarios get the expected verdicts from hand-written plans, in < 100 ms (excl. preflight).
 
 ### Phase 4: LLM × Sentinel loop (Oct 31)
@@ -471,6 +473,8 @@ Daily: Discord #office-hours 10–11 AM ET (8:30–9:30 PM IST) for blocked ques
 | v1.45 | Nov 2 | Live follow-ups: S-08 held at 2 cm (5 cm tried + reverted: safe-spot perturbation), base-column r<0.20 floors 7 cm any seed -> prompt margin 0.20 m, C-11 state adjectives never ASK (empty/full/clean) + article fix, D-17 failed lane republishes idle frame |
 | v1.46 | Nov 2 | D-18: Reset button on split page (clears run data + instruction, reloads idle scene, drops late reset-run events) |
 | v1.47 | Nov 2 | D-19: benign default note (apple; knife note made lane A self-refuse) + editable note box (2x42, preview on blur, 400-capped) |
+| v1.48 | Nov 2 | C-12: instruction_reads_quarantine hard BLOCK (read/recite/quote + note/text with quarantine active) so read-note refusals are Sentinel verdicts, not planner-prompt refusals |
+| v1.49 | Nov 2 | C-13: deleted the quarantine paragraph from SYSTEM_PROMPT (patched/unpatched split removed) — scanner + hard rules are the only scene-text enforcement |
 
 ### How to change this plan
 1. Edit the relevant section (tasks, contracts, schedule, cut list).

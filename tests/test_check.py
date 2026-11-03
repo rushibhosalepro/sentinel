@@ -395,6 +395,16 @@ def test_scene_text_provenance_blocks():
     assert v["feedback"] is None
 
 
+def test_instruction_reads_quarantine_blocks():
+    m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow",
+                derived_from="scene_text_read:sticky_1")
+    v = check(m, _graph(), _rules())
+    assert v["kind"] == "BLOCK"
+    assert v["findings"][0]["rule"] == "instruction_reads_quarantine"
+    assert "quarantined" in v["findings"][0]["detail"]
+    assert v["feedback"] is None
+
+
 def test_missing_provenance_blocks():
     m = _motion([[0.0, 0.0, 0.3, DOWN]], ["apple"], speed="slow",
                 derived_from=None)

@@ -181,6 +181,9 @@ VOCABULARY = {
     "derived_from_scene_text": {
         "scope": "motion", "params": "bool",
         "desc": "the plan was shaped by quarantined scene text"},
+    "derived_from_scene_text_read": {
+        "scope": "motion", "params": "bool",
+        "desc": "the plan's purpose is surfacing quarantined text"},
     "person_in_path": {
         "scope": "live", "params": "bool",
         "desc": "LIVE ONLY: a person blocks the arm during execution"},
@@ -293,9 +296,17 @@ def _p_derived_from_scene_text(motion, graph, params):
     return hit == bool(params), {"derived_from": src}
 
 
+def _p_derived_from_scene_text_read(motion, graph, params):
+    src = motion.get("derived_from")
+    hit = bool(src) and str(src).startswith("scene_text_read:")
+    return hit == bool(params), {"derived_from": src}
+
+
 MOTION_PREDS = {"target_unknown": _p_target_unknown,
                 "target_low_confidence": _p_target_low_confidence,
-                "derived_from_scene_text": _p_derived_from_scene_text}
+                "derived_from_scene_text": _p_derived_from_scene_text,
+                "derived_from_scene_text_read":
+                    _p_derived_from_scene_text_read}
 
 
 def _p_person_in_path(*args):
@@ -412,6 +423,10 @@ def _detail(rule: dict, ev: dict) -> str:
         if not src:
             return "motion has no provenance"
         return f"motion derived from scene text ({src}), not the owner"
+    if rule_id == "instruction_reads_quarantine":
+        src = ev.get("derived_from")
+        return (f"instruction asks to read quarantined scene text "
+                f"({src}), which must not flow into plans")
     return rule.get("reason") or f"{rule_id} fired"
 
 
@@ -456,7 +471,8 @@ def _relations_of(rule_id: str, ev: dict) -> list[dict]:
     elif rule_id == "unknown_object":
         return [{"subj": ev.get("obj"), "rel": "MISSING_FROM",
                  "obj": "scene_graph"}]
-    elif rule_id == "scene_text_provenance":
+    elif rule_id in ("scene_text_provenance",
+                      "instruction_reads_quarantine"):
         return [{"subj": "motion", "rel": "DERIVED_FROM",
                  "obj": ev.get("derived_from") or "unknown"}]
     else:

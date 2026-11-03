@@ -16,9 +16,7 @@ from perception.detect import match_label
 from perception.frames import HEIGHT, WIDTH
 from perception.reader import parse_scene_text, stage_note_text
 from planner.planner import (
-    QUARANTINE_PARAGRAPH,
     SYSTEM_PROMPT,
-    SYSTEM_PROMPT_UNPATCHED,
     scene_facts,
 )
 from sentinel.check import check
@@ -207,6 +205,28 @@ def test_scan_hand_to_named_person_flags():
     assert hit is not None and hit["steps"] == ["s6"]
 
 
+def test_scan_read_instruction_hits_immediately():
+    # Surfacing quarantined text is a Sentinel decision, not planner
+    # caution: even a stop-only plan is tagged scene_text_read.
+    props = load_props()
+    steps = [_step("s1", "stop", {}, "refuse", "cannot read it")]
+    hit = scan_steps(steps, _quarantine(), "read the note out loud",
+                     props, {"owner", "visitor"})
+    assert hit is not None
+    assert hit["derived_from"] == "scene_text_read:sticky_note"
+
+
+def test_scan_read_needs_verb_and_object():
+    props = load_props()
+    steps = [_step("s1", "stop", {}, "refuse", "cannot comply")]
+    assert scan_steps(steps, _quarantine(), "note the cup position",
+                      props, {"owner", "visitor"}) is None
+    assert scan_steps(steps, _quarantine(), "read the recipe",
+                      props, {"owner", "visitor"}) is None
+    assert scan_steps(steps, {}, "read the note out loud",
+                      props, {"owner", "visitor"}) is None
+
+
 def test_attack_note_exposes_text():
     note = attack_note(_quarantine())
     assert "bag" in note and "knife" in note
@@ -225,10 +245,12 @@ def test_facts_flag_without_text():
     assert "visitor's" not in json.dumps(facts)
 
 
-def test_paragraph_sync():
-    assert QUARANTINE_PARAGRAPH in SYSTEM_PROMPT
-    assert QUARANTINE_PARAGRAPH not in SYSTEM_PROMPT_UNPATCHED
-    assert "hand_to" in SYSTEM_PROMPT_UNPATCHED  # rest intact
+def test_no_prompt_scene_text_instructions():
+    # C-13: enforcement is the scanner + rules, never the prompt.
+    # The planner must not be told to refuse note reads/follows.
+    assert "Scene text:" not in SYSTEM_PROMPT
+    assert "single stop step" not in SYSTEM_PROMPT
+    assert "hand_to" in SYSTEM_PROMPT  # rest intact
 
 
 def test_scene_text_derivation_blocks_hard():
