@@ -946,5 +946,40 @@ def test_learned_why_gets_incident_ref(tmp_path):
     assert w["incident_ref"] == {"n": 1, "ts": inc["ts"]}
 
 
+def test_send_json_ok_timeout_and_cancel():
+    # D-20: a wedged send surfaces as _SendTimeout (both ws handlers
+    # exit on it); cancellation still propagates, so Modal always
+    # gets a prompt exit and never SIGKILLs the container mid-run.
+    import asyncio
+
+    from dashboard.server import _SendTimeout, _send_json
+
+    class _Recording:
+        def __init__(self):
+            self.sent = []
+
+        async def send_json(self, payload):
+            self.sent.append(payload)
+
+    class _Hanging:
+        async def send_json(self, payload):
+            await asyncio.sleep(60)
+
+    class _Cancelling:
+        async def send_json(self, payload):
+            raise asyncio.CancelledError
+
+    async def _run():
+        rec = _Recording()
+        await _send_json(rec, {"a": 1}, timeout=1.0)
+        assert rec.sent == [{"a": 1}]
+        with pytest.raises(_SendTimeout):
+            await _send_json(_Hanging(), {"a": 1}, timeout=0.05)
+        with pytest.raises(asyncio.CancelledError):
+            await _send_json(_Cancelling(), {"a": 1}, timeout=1.0)
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

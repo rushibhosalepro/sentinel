@@ -165,6 +165,12 @@ export default function SplitView() {
   const [noteText, setNoteText] = useState(NOTE_DEFAULT)
   const runRef = useRef(null)
   const ignoredRef = useRef(null)
+  // D-20 reconnect watchdog: the run id from POST /split, whether any
+  // event for it has arrived, and a mirror of running for the socket
+  // effect (which closes over refs, not state).
+  const postRef = useRef(null)
+  const seenRef = useRef(false)
+  const runningRef = useRef(false)
 
   function clearRun() {
     setImageA(null)
@@ -199,6 +205,7 @@ export default function SplitView() {
   useEffect(() => {
     let ws = null
     let timer = null
+    let watchdog = null
     let alive = true
     function resetRun(runId) {
       runRef.current = runId
@@ -212,6 +219,12 @@ export default function SplitView() {
       const ev = JSON.parse(msg.data)
       if (ev.run_id !== 0 && ev.run_id === ignoredRef.current) return
       if (ev.run_id !== runRef.current) resetRun(ev.run_id)
+      if (ev.run_id === postRef.current) {
+        // Our run is alive on this server: disarm the watchdog.
+        seenRef.current = true
+        clearTimeout(watchdog)
+        watchdog = null
+      }
       if (ev.lane === 'A') {
         if (ev.type === 'frame') {
           setImageA(`data:image/jpeg;base64,${ev.image}`)
@@ -279,14 +292,37 @@ export default function SplitView() {
         setDoneB({ status: ev.status, detail: ev.detail })
         setStatus(`done: ${ev.status}`)
         setRunning(false)
+        runningRef.current = false
+        clearTimeout(watchdog)
+        watchdog = null
       }
     }
     function connect() {
       if (!alive) return
       ws = new WebSocket(WS_URL)
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        setConnected(true)
+        // D-20: mid-run reconnect watchdog. A healthy server replays
+        // our run's events (catchup) and disarms this; a restarted
+        // server only replays idle, so the run is declared lost
+        // instead of freezing on "running…" forever. Only armed once
+        // the run has streamed something (queued runs just wait).
+        if (runningRef.current && postRef.current !== null
+            && seenRef.current) {
+          clearTimeout(watchdog)
+          watchdog = setTimeout(() => {
+            watchdog = null
+            if (!runningRef.current) return
+            runningRef.current = false
+            setRunning(false)
+            setStatus('run interrupted (connection lost) — run again')
+          }, 15000)
+        }
+      }
       ws.onclose = () => {
         setConnected(false)
+        clearTimeout(watchdog)
+        watchdog = null
         if (alive) timer = setTimeout(connect, 1000)
       }
       ws.onmessage = onMessage
@@ -295,6 +331,7 @@ export default function SplitView() {
     return () => {
       alive = false
       clearTimeout(timer)
+      clearTimeout(watchdog)
       if (ws) ws.close()
     }
   }, [])
@@ -333,6 +370,9 @@ export default function SplitView() {
     setQueued(null)
     setStatus('running both lanes…')
     setRunning(true)
+    runningRef.current = true
+    postRef.current = null
+    seenRef.current = false
     const usePreset = presetOverride || preset
     const raw =
       textOverride !== undefined ? textOverride : instruction
@@ -352,6 +392,7 @@ export default function SplitView() {
       body: JSON.stringify(body),
     })
     const data = await r.json().catch(() => ({}))
+    postRef.current = data.run_id ?? null
     if (data.status === 'queued') {
       setQueued(data.position)
       setStatus(`queued #${data.position}…`)
@@ -365,6 +406,7 @@ export default function SplitView() {
             : err || `server error ${r.status}`,
       )
       setRunning(false)
+      runningRef.current = false
     }
   }
 
@@ -381,6 +423,9 @@ export default function SplitView() {
     setHint(null)
     setQueued(null)
     setRunning(false)
+    runningRef.current = false
+    postRef.current = null
+    seenRef.current = false
     setStatus('idle')
     setNoteText(NOTE_DEFAULT)
     fetch(sceneUrl(preset, NOTE_DEFAULT)).catch(() => {})

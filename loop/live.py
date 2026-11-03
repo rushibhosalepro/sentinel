@@ -57,6 +57,10 @@ KEY_ESC = 256
 FPS = 60
 SETTLE_T = 0.5  # hold the final frame briefly after executing
 PREVIEW_T = 1.0  # path-preview dwell before executing (s)
+# D-20: bound the planner-result wait. A worker that dies silently
+# (uncaught exception off the wrapped paths) must surface as a
+# done-error, never freeze the lanes on "running..." forever.
+RESULT_TIMEOUT_S = 600
 PREVIEW_MAX = 40  # path markers
 PROMPT = "instruction> "
 
@@ -70,6 +74,16 @@ ORB_COLORS = {"ALLOW": (0.2, 0.9, 0.2, 1.0),
 PATH_RGBA = (0.2, 0.85, 0.9, 1.0)
 TARGET_RGBA = (1.0, 0.45, 0.1, 1.0)
 _IDENT = np.eye(3).flatten()
+
+
+def _await_result(results: queue.Queue,
+                  timeout: float = RESULT_TIMEOUT_S) -> dict:
+    """Next planner result, or a synthesised error past the timeout."""
+    try:
+        return results.get(timeout=timeout)
+    except queue.Empty:
+        return {"gen": 0, "error": "planner worker timed out",
+                "trace": ["worker timeout"], "rounds_log": []}
 
 
 def _set_sphere(g, pos, r, rgba) -> None:
@@ -839,7 +853,7 @@ def _run_headless(instruction: str, out_path: str, fps: int = 30,
             rejected_line,
             script_turned_hids,
         )
-        res = results.get()
+        res = _await_result(results)
         trace = list(res.get("trace", []))
 
         def emit_rounds():

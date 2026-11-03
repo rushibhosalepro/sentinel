@@ -333,3 +333,14 @@ def test_verdict_rounds_logged(monkeypatch, tmp_path):
                                  "electronic_cm", "electronic_obj",
                                  "person_cm", "person"}
     assert e["closest"]["fragile_obj"] == "wine_glass"
+
+
+def test_await_result_timeout_synthesises_error():
+    # D-20: a planner worker that dies silently must surface as a
+    # done-error, never freeze the lanes on "running..." forever.
+    q: queue.Queue = queue.Queue()
+    res = live._await_result(q, timeout=0.05)
+    assert res["error"] == "planner worker timed out"
+    assert res["rounds_log"] == []
+    q.put({"gen": 0, "steps": []})
+    assert live._await_result(q, timeout=1.0) == {"gen": 0, "steps": []}

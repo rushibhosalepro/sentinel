@@ -148,6 +148,26 @@ async def _next_event(q: queue.Queue):
             await asyncio.sleep(0.05)
 
 
+class _SendTimeout(Exception):
+    """A websocket send wedged: treat the client as gone."""
+
+
+async def _send_json(websocket, payload: dict,
+                     timeout: float = 5.0) -> None:
+    """Send with a timeout so a dead socket can't park the handler.
+
+    D-20: Modal SIGKILLs the container when a cancelled input doesn't
+    exit within 30 s, murdering any run in flight. A half-open client
+    (tab dropped mid-run) must surface as an ordinary disconnect the
+    caller exits on, never a wedged send. Raises _SendTimeout on
+    timeout; CancelledError propagates untouched (prompt exit).
+    """
+    try:
+        await asyncio.wait_for(websocket.send_json(payload), timeout)
+    except asyncio.TimeoutError:
+        raise _SendTimeout from None
+
+
 def _render_demo_rgb(preset: str, idle: dict):
     """Demo-camera RGB for a preset; lazy-loads the shared idle sim."""
     import mujoco
@@ -810,12 +830,13 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
             catchup += list(state["history"])
         try:
             for rid, event in catchup:
-                await websocket.send_json(_envelope(rid, event))
+                await _send_json(websocket, _envelope(rid, event))
             while True:
                 event = await _next_event(mine)
-                await websocket.send_json(_envelope(state["run_id"], event))
-        except WebSocketDisconnect:
-            pass
+                await _send_json(
+                    websocket, _envelope(state["run_id"], event))
+        except (WebSocketDisconnect, _SendTimeout):
+            pass  # CancelledError propagates: prompt exit, no SIGKILL
         finally:
             with state["lock"]:
                 state["subs"].discard(mine)
@@ -835,11 +856,12 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
                 and not state["split_history"]
         if need_idle:
             # Nothing published yet: seed both lanes with the preset
-            # idle (no clearing), off the event loop.
+            # idle (no clearing), off the event loop. Bounded: a wedged
+            # render must not park the handler past Modal's 30 s grace.
             try:
-                await loop.run_in_executor(
+                await asyncio.wait_for(loop.run_in_executor(
                     None,
-                    lambda: _publish_split_idle(preset, clear=False))
+                    lambda: _publish_split_idle(preset, clear=False)), 30)
             except Exception as e:  # noqa: BLE001 - stay in loading
                 print(f"split idle render failed: {e}")
         # Drop anything queued during the render: it is all in
@@ -859,14 +881,16 @@ def create_app(runner=run_loop_live, owner_token: str | None = None,
         catchup += history
         try:
             for rid, lane, event in catchup:
-                await websocket.send_json(
+                await _send_json(
+                    websocket,
                     {"run_id": rid, "lane": lane, **_envelope(rid, event)})
             while True:
                 rid, lane, event = await _next_event(mine)
-                await websocket.send_json(
+                await _send_json(
+                    websocket,
                     {"run_id": rid, "lane": lane, **_envelope(rid, event)})
-        except WebSocketDisconnect:
-            pass
+        except (WebSocketDisconnect, _SendTimeout):
+            pass  # CancelledError propagates: prompt exit, no SIGKILL
         finally:
             with state["lock"]:
                 state["split_subs"].discard(mine)
