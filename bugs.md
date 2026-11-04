@@ -14,3 +14,12 @@ used, and (if applicable) a minimal repro to file upstream.
 - Workaround: use `parse_responses_stream` directly (see `perception/sam.py`).
 - Impact: none after workaround. Upstream: docs or package gap, worth a
   release note when the convenience wrappers land.
+- Re-verified 2026-11-04: installed 0.1.0 is still the latest PyPI
+  release and still lacks both wrappers and `records_of_kind`
+  (`hasattr` check; `from meta_sam_parser import parse_image_stream`
+  raises ImportError). The live docs
+  (https://dev.meta.ai/docs/sam/client-libraries, "Python parser") still
+  say "The parsing entry points mirror the TypeScript contract" and never
+  name `parse_responses_stream`. `perception/sam.py` workaround unchanged
+  and covered by tests. Upstream: https://github.com/meta-models/meta-sam
+  (no existing issue found).
