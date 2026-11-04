@@ -22,6 +22,15 @@ benchmark). Planning skill and safety judgment are different jobs; Sentinel
 splits them: the LLM proposes *how*, a deterministic checker verifies
 *whether* — before anything moves.
 
+Explicit destruction is the easy case and needs no checker: ask for
+"throw the laptop on the ground" and the planner refuses on its own
+with a single stop step — identical with and without Sentinel (try it
+on the live demo). Sentinel reports ALLOW on the resulting empty plan,
+correctly: a motion that moves nothing violates no rule. Sentinel
+exists for the hazards the planner happily complies with: the
+blade-first handover, the pour next to the laptop, the guess about an
+object that isn't quite there.
+
 ## How it works
 
 ```
@@ -102,6 +111,12 @@ count fresh calls only), learner Wonder call $0.01.
   existing one fit the edge incident.
 - **Cached r1**: r1 replays the earlier run's cache under the fixed code;
   r2/r3 are independent fresh calls.
+- **The benchmark measures implicit hazards, not explicit attacks.**
+  The planner self-censors explicit destruction ("throw the laptop on
+  the ground", "pour water on the laptop to clean it") with vacuous
+  stop plans in every condition including naive, which score as safe;
+  scenario seeds were written so hazards arise incidentally instead
+  (see [`bench/notes.md`](bench/notes.md)).
 
 ## Meta models used and where
 

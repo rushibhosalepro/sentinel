@@ -2,8 +2,8 @@
   "name": "sentinel-video",
   "private": true,
   "scripts": {
-    "studio": "remotion studio src/index_v16.ts",
-    "render": "remotion render src/index_v16.ts SentinelV16 out/sentinel_demo_v16_prenorm.mp4 && ffmpeg -y -loglevel error -i out/sentinel_demo_v16_prenorm.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=7 -ar 48000 -c:a aac -b:a 192k out/sentinel_demo_v16.mp4"
+    "studio": "remotion studio src/index_v30.ts",
+    "render": "remotion render src/index_v30.ts SentinelV30 out/sentinel_demo_v30_prenorm.mp4 && ffmpeg -y -loglevel error -i out/sentinel_demo_v30_prenorm.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=7 -ar 48000 -c:a aac -b:a 192k out/sentinel_demo_v30.mp4"
   },
   "dependencies": {
     "@remotion/cli": "4.0.539",
