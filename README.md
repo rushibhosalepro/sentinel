@@ -2,15 +2,18 @@
 
 **The LLM decides how. Sentinel decides whether.**
 
+*For anyone putting an LLM in charge of a physical arm.*
+
 Live demo: https://rushi-bhosale84--sentinel-web.us-east.modal.run
 (`/` split view: naive vs Sentinel side by side; `/debug` full dashboard)
+Demo video (3 min): https://youtu.be/QiI9FRH5ySk
 
 ![knife hand-over: naive hands it blade-first, with Sentinel it goes handle-first and slows down](docs/knife_split.gif)
 
 *Left: no Sentinel — the knife is handed blade-first. Right: with Sentinel the
 hand-over runs handle-first and slows near the person, and the checker
-verifies the blade points away before the arm moves. Full 17 s clip:
-`out/split_knife.mp4` (re-record with `uv run python -m dashboard.split_record knife`).*
+verifies the blade points away before the arm moves. Full 17 s clip (not committed — re-record with
+`uv run python -m dashboard.split_record knife`).*
 
 ## The problem
 
@@ -52,14 +55,20 @@ camera ──► perception ──► scene graph ──► LLM plan ──► M
 1. **Perceive**: SAM 3.1 + Muse Spark build the scene graph (objects,
    people, properties, relations). A quarantined reader extracts scene
    text as data only — the planner never sees it raw.
-2. **Plan**: Muse Spark returns structured plan steps over 6 primitives
-   (graph facts only, no image).
+2. **Plan**: Muse Spark returns structured plan steps over 6 motion
+   primitives (+ the hand_to skill, expanded by the loop; graph facts
+   only, no image).
 3. **Dry-run**: the plan is rolled out to a full Motion (path, held
    object, tilt, speed) on a sim copy — nothing moves yet.
 4. **Check**: Sentinel evaluates deterministic rules over the Motion and
    graph: ALLOW, ASK (owner confirm), BLOCK (refuse), HALT (person moved
    into danger mid-motion). Every verdict carries a Why? path with
-   measured values.
+   measured values. A single check() runs in ~2–20 ms (worst 20.5 ms
+   over 350 replay-fixture checks); a full rolled-out motion takes
+   ~0.2 ms per sample (7-step knife hand-over, 88 samples: ~19 ms;
+   9-step, 231 samples: ~46 ms) — no LLM inside. Ask for "the blue
+   cup" and Sentinel ASKs ("I can't see a blue cup - did you mean the
+   cup?") instead of guessing.
 5. **Repair**: fixable findings come back as constraint hints ("move the
    cup away from electronics"), the LLM replans, up to 3 rounds.
 6. **Learn**: the owner can file "that was unsafe" on any run; Muse
@@ -83,6 +92,8 @@ mean ± spread across repeats:
 The loop catches ~2/3 of what naive executes, and replan beats veto-only
 (18.8% vs 29.7%): checking the dry-run *and* repairing it matters. The same
 LLM as a judge-only gate (44.3%) is barely better than no gate at all.
+Safe tasks still succeed 82.3% of the time vs 83.3% naive — the safety
+costs about one point.
 
 **Learner proof** (held-out incident, same plans before/after, then rolled
 back): unseen unsafe-exec 47.8% → 15.9% (69 cells). v1 (15 cm edge
@@ -105,7 +116,10 @@ count fresh calls only), learner Wonder call $0.01.
 - **Simulation only** (MuJoCo kitchen, procedural person). No real robot.
 - **Ground-truth perception for the benchmark** (`perception="truth"` in
   `bench/run.py`); SAM mode exists for live runs but ASK coverage for
-  SAM-missed objects is still open.
+  SAM-missed objects is still open. The checker itself never sees
+  pixels — it operates on motion + graph abstractions, so perception
+  stays a swappable module (ground-truth → SAM 3.1 demonstrated in
+  `bench/perception_compare.py`).
 - **`release_near_edge` was added to the predicate vocabulary** for the
   learner proof — the learner can only use vocabulary predicates, and no
   existing one fit the edge incident.
@@ -134,8 +148,8 @@ count fresh calls only), learner Wonder call $0.01.
 ## Try it
 
 **Live** (no setup): https://rushi-bhosale84--sentinel-web.us-east.modal.run —
-pick a featured card and press Run both. Guardrails: one run at a time,
-10 runs/IP/hour, daily $ budget, presets-only unless owner.
+pick a featured card or type free text (200 chars) and press Run both.
+Guardrails: one run at a time, 10 runs/IP/hour, daily $ budget.
 
 **Local**:
 
@@ -151,6 +165,15 @@ cd dashboard/web && npm run dev   # open http://localhost:5173/
 Or drive the arm from your terminal: `uv run python -m loop.live`
 (type instructions; F1 person reaches in, F2 camera, F5 reset, Esc quit).
 Scenario playback: `uv run python -m sim.play knife_handover_safe`.
+
+![loop.live in the MuJoCo viewer: "pass me knife quickly", SAM 3.1 perception, the Muse Spark plan, Sentinel ALLOW](docs/local_live.png)
+
+*`loop.live` in the real MuJoCo viewer: the instruction "pass me knife
+quickly" is typed in, SAM 3.1 perceives 10 objects (low-confidence ones
+flagged), Muse Spark plans 7 steps, Sentinel checks the dry-run (round 1
+ALLOW), then the arm executes the hand-over (`hand_to` runs handle-first
+and slows near the person). Same physics and checker as the benchmark
+and the live demo.*
 
 **Reproduce the benchmark** (needs `MODEL_API_KEY`; a fresh full run costs
 ~$7 in model calls; `labels.lock` is committed and the runner refuses on
