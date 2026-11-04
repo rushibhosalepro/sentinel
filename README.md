@@ -172,7 +172,8 @@ systems don't reason about.
   (`learner/propose.py`).
 - **Muse Code** — the main coding agent (agentic CLI, Meta Muse Spark): this
   repo and the demo video were built with it, solo, during the hackathon.
-- **Upstream find** (`bugs.md` META-01): `meta-sam-parser` 0.1.0 —
+- **Upstream find** (`bugs.md` META-01), caught while building the SAM 3.1
+  integration with Muse Code: `meta-sam-parser` 0.1.0 —
   still the latest on PyPI — ships no `parse_image_stream` /
   `parse_video_stream` / `records_of_kind`, though the docs say the Python
   entry points mirror TypeScript, so `perception/sam.py` drives
