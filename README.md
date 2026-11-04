@@ -170,7 +170,15 @@ systems don't reason about.
   Flagged for the open-weights bonus. *(F-05)*
 - **Muse Wonder** — rule learner: incident → one candidate rule JSON
   (`learner/propose.py`).
-- **Muse Code** — this repo was built with it (agentic CLI, Meta Muse Spark).
+- **Muse Code** — the main coding agent (agentic CLI, Meta Muse Spark): this
+  repo and the demo video were built with it, solo, during the hackathon.
+
+**Transparency note.** Claude Code (Anthropic) was also used alongside Muse
+Code for writing, reviewing and committing code; 19 commits from Oct 27–30
+(including the benchmark harness, rule learner and Modal deploy) carry its
+co-author trailer, and later commits credit Muse Code. Every model call
+inside Sentinel itself (planning, perception, scene-text reading, rule
+learning) uses Meta models.
 
 ## Try it
 
