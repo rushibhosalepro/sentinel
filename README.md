@@ -178,7 +178,8 @@ systems don't reason about.
   still the latest on PyPI — ships no `parse_image_stream` /
   `parse_video_stream` / `records_of_kind`, though the docs say the Python
   entry points mirror TypeScript, and worked around it: `perception/sam.py`
-  drives `parse_responses_stream` directly.
+  drives `parse_responses_stream` directly (filed as
+  [meta-sam#32](https://github.com/meta-models/meta-sam/issues/32)).
 
 **Transparency note.** Claude Code (Anthropic) was also used alongside Muse
 Code for writing, reviewing and committing code; 19 commits from Oct 27–30

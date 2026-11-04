@@ -21,5 +21,5 @@ used, and (if applicable) a minimal repro to file upstream.
   (https://dev.meta.ai/docs/sam/client-libraries, "Python parser") still
   say "The parsing entry points mirror the TypeScript contract" and never
   name `parse_responses_stream`. `perception/sam.py` workaround unchanged
-  and covered by tests. Upstream: https://github.com/meta-models/meta-sam
-  (no existing issue found).
+  and covered by tests. Filed upstream:
+  https://github.com/meta-models/meta-sam/issues/32.
