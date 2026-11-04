@@ -113,7 +113,8 @@ count fresh calls only), learner Wonder call $0.01.
   (person_in_path expects HALT at run time, from the live monitor, not at
   the pre-move check; veto_only, naive and spark_judge run with a passive
   monitor by design and execute 100%, the loop's active monitor 0%).
-- **Simulation only** (MuJoCo kitchen, procedural person). No real robot.
+- **Simulation only** (MuJoCo kitchen, procedural person). No real robot
+  yet; see [From simulation to a real robot](#from-simulation-to-a-real-robot).
 - **Ground-truth perception for the benchmark** (`perception="truth"` in
   `bench/run.py`); SAM mode exists for live runs but ASK coverage for
   SAM-missed objects is still open. The checker itself never sees
@@ -131,6 +132,32 @@ count fresh calls only), learner Wonder call $0.01.
   stop plans in every condition including naive, which score as safe;
   scenario seeds were written so hazards arise incidentally instead
   (see [`bench/notes.md`](bench/notes.md)).
+
+## From simulation to a real robot
+
+The simulator is the test rig, not part of Sentinel. `check()` never
+touches MuJoCo or pixels: it reads a **scene graph** (objects, properties,
+people, relations) and a **Motion** (path, held object, tilt, speed).
+Moving to a real arm means writing adapters that produce those same two
+inputs; the rules, the replan loop and the learner stay unchanged.
+
+| Adapter | In simulation today | On a real robot |
+|---|---|---|
+| Perception → scene graph | MuJoCo frames (or ground truth) → SAM 3.1 + Muse Spark | Real camera + depth → the same SAM 3.1 + Muse Spark pipeline, same graph format |
+| Plan → Motion (dry run) | mink IK rolled out on a MuJoCo copy | The robot's own planner (e.g. MoveIt) or a digital twin of the cell; its trajectory converted to the Motion format |
+| Execute | MuJoCo steps the arm | Only after ALLOW, the checked trajectory goes to the controller (ROS 2 / vendor SDK) |
+| Live monitor → HALT | Simulated person reaching in | Person tracking from the camera; HALT triggers the robot's protective stop |
+
+One swap is already shown: the benchmark ran on ground-truth perception
+and SAM 3.1 drops in with the checker unchanged
+([`bench/perception_compare.py`](bench/perception_compare.py)). Not yet
+shown: real sensor noise (Sentinel ASKs rather than guesses on objects it
+can't match, but coverage for objects SAM misses is open), and HALT
+latency, which on hardware depends on the robot's own stop. Sentinel sits
+**above** certified industrial safety (e.g. ISO 10218, speed and
+separation monitoring), not in place of it: it catches unsafe *plans*,
+like a blade pointed at a hand or a pour next to a laptop, that those
+systems don't reason about.
 
 ## Meta models used and where
 
