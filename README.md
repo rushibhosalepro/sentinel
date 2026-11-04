@@ -102,7 +102,7 @@ threshold) was **rejected by the all-safe audit** — false refusals 11.5% →
 (8 cm) passed the expanded gate and kept the full reduction at 10.9%
 refusals. Proof: `bench/learn_proof_v2.json`.
 
-**Cost**: full 1029-rep run $6.56 fresh (949 uncached calls; time/$ medians
+**Cost**: the full benchmark run (run id `1029-rep`) cost $6.56 fresh (949 uncached calls; time/$ medians
 count fresh calls only), learner Wonder call $0.01.
 
 ## Honest limits
@@ -205,5 +205,5 @@ no third-party licence.
 
 Built from scratch during the **Meta Global AI Developer Hackathon
 (Oct 27 – Nov 4, 2026)** — Indie track, *Push the Frontier* theme. The
-[commit history](.) and [`PLAN.md`](PLAN.md) change log record the build
+[commit history](https://github.com/rushibhosalepro/sentinel/commits/main) and [`PLAN.md`](PLAN.md) change log record the build
 (Phase 0 sim → Sentinel → dashboard → benchmark → this README).
